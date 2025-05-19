@@ -48,13 +48,13 @@ class well_2d:
         return spectrum
 
 class u3:
-    def __init__(self, N, E0=1, eps=1, alpha=1, beta=1, A=1):
+    def __init__(self, N, E0=0, ksi=0, alpha=0, beta=0):
         self.N = N
         self.E0 = E0
-        self.eps = eps
+        self.eps = 1-ksi
         self.alpha = alpha
         self.beta = beta
-        self.A = A
+        self.A = -ksi/(N+1)
 
         self.i_max = encode(self.N, self.N)
         self.H_ij = np.zeros([self.i_max+1, self.i_max+1], dtype=complex)
@@ -73,11 +73,11 @@ class u3:
         return el
     
     def W_el_diag(self, n1, l):
-        el = ( (self.N - n1)*(n1 + 2) + (self.N - n1 + 1)*n1 + l**2 )
+        el = self.A*( (self.N - n1)*(n1 + 2) + (self.N - n1 + 1)*n1 + l**2 )
         return el
     
     def W_el_offdiag(self, n1, l):
-        el = - np.sqrt( (self.N - n1 + 2)*(self.N - n1 + 1)*(n1 + l)*(n1 - l) )
+        el = - self.A*np.sqrt( (self.N - n1 + 2)*(self.N - n1 + 1)*(n1 + l)*(n1 - l) )
         return el
         
     def H_ij_fill(self):
@@ -85,7 +85,7 @@ class u3:
             for j in range(self.i_max + 1):
                 n_i, l_i = decode(i)
                 n_j, l_j = decode(j)
-                if n_i == n_j:
+                if n_i == n_j and l_i == l_j:
                     self.H_ij[i, j] = self.H1_el(n_i, l_i) + self.W_el_diag(n_i, l_i)
                 elif n_i == n_j + 2:
                     self.H_ij[i, j] = self.W_el_offdiag(n_i, l_i)
