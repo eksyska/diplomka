@@ -3,33 +3,40 @@ import matplotlib.pyplot as plt
 from models import *
 from qm_statistics import *
 from plot import *
+from models import *
 
-N=2
+L = 3
+N = 3
+J = 1.0
+U = 1.0
+gamma = 0.5
 
-"""
-N=5 
-u3 = u3(N)
-u3.H_ij_fill()
-print(u3.eigvals())
+test_lindbladian = True
+test_hamiltonian = False
 
-vec = np.zeros(encode(N, N))
-vec[0] = 1
-u3.state_vec = vec
-print(u3.state_vec)
-"""
+if test_lindbladian:
 
-u3 = u3(N)
-u3.H_ij_fill()
+    L_op = bose_hubbard_lindbladian(L, N, J, U, gamma)
+    print(L_op.shape)
 
-energies = get_energies(u3.H_ij)
+    evals, evecs = L_op.eigenstates()
 
-energies = unfolding_polyfit(energies, deg=8)
+    s_norm_g, rho_g, keep_g, s_raw_g = normalized_nn_spacings(evals, kde_bw=0.2, remove_edge_frac=0.12)
+    plot_spacing_hist(s_norm_g, title='Ginibre sample normalized NN spacings (N=200)')
 
-plot_level_density(energies)
-"""
+    #z = complex_spacing_ratios(evals)
+    #plot_complex_ratios(z)
 
-well = well_2d(10000, 1, np.sqrt(np.pi/3))
-spectrum = well.compute_spectrum()
-spectrum = unfolding_polyfit(spectrum, deg=8)
-plot_level_density(spectrum)
-"""
+if test_hamiltonian:
+
+    H_op = bose_hubbard_hamiltonian(L, N, J, U)
+    print(H_op.shape)
+
+    eigvals, evecs = H_op.eigenstates()
+
+    spacings = np.diff(np.sort(eigvals))
+    spacings = spacings[spacings > 0]
+    spacings /= np.mean(spacings)  # makes ⟨s⟩ = 1
+
+    plot_level_density(spacings, func=poisson, range=(0,5))
+
