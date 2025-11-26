@@ -44,10 +44,11 @@ def bose_hubbard_lindbladian(L=3, N=2, J=1.0, U=1.0, gamma=0.1):
     # hopping (closed boundary)
     for i in range(L):
         j = (i + 1) % L
-        H += -0.5 * J * (a_list[i].dag() * a_list[j] + a_list[j].dag() * a_list[i])
+        H += -J * (a_list[i].dag() * a_list[j] + a_list[j].dag() * a_list[i])
+
     # onsite interaction
     for j in range(L):
-        H += 0.5 * U * n_list[j] * (n_list[j] - qt.qeye(H.dims[0]))
+        H += U / N * n_list[j] * (n_list[j] - qt.qeye(H.dims[0]))
 
     # collapse operators (loss at each site)
     c_ops = [np.sqrt(gamma) * a_j for a_j in a_list]
