@@ -13,16 +13,17 @@ from miscelaneous import *
 
 
 
-def bose_hubbard_lindbladian(L, N, J, U, gamma, c_ops_template, restrict_symmetry=False, k=1):
+def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, restrict_symmetry=False, gamma2=1):
     """Builds Bose-Hubbard model Lindbladian, can be reduced to translation symmetry subspace
 
     Args:
-        L (int): # of sites
-        N (int): # of excitations
+        L (int): number of sites
+        N (int): number of excitations
         J (float): 2-site interaction strength
         U (float): on-site interaction strength
         gamma (float): dissipation strength
         c_ops_template (array): list of dissipation coefficients on sites
+        n_local_max (int): site cuttof. Defaults to None.
         restrict_symmetry (bool, optional): TRUE if we want to restrict the Lindbladian to a translation subspace. Defaults to False.
         k (int, optional): momentum sector (if we restrict to a subspace). Defaults to 0.
 
@@ -30,7 +31,9 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, c_ops_template, restrict_symmetr
         Qobj: Bose-Hubbard Lindbladian
     """
 
-    basis_list = bose_basis(L, N, fixed_N=False)
+    print(f"[*] building lindbladian for L={L}, N={N}, J={J}, U={U}, gamma={gamma}")
+
+    basis_list = bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
     dim = len(basis_list)    
 
     # build all annihilation operators
@@ -52,8 +55,13 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, c_ops_template, restrict_symmetr
     # jump operators for dissipation
     c_ops = []
     for i in range(L):
-        c_ops.append(c_ops_template[i]*np.sqrt(gamma) * a_list[i])
-    
+        if dissipation_type == 'DEPHASING':
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma) * a_list[i].dag() * a_list[i])
+        elif dissipation_type == 'LOSS':
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma) * a_list[i])
+    #c_ops = [np.sqrt(gamma) * a_list[i], np.sqrt(gamma) * a_list[i] * a_list[i], np.sqrt(gamma) * a_list[i].dag() * a_list[i] * a_list[i]]  
+    #c_ops = [np.sqrt(gamma)*a_list[i], np.sqrt(2)*np.sqrt(gamma)*a_list[i], np.sqrt(gamma2)*a_list[i].dag()]
+
     L_op = qt.liouvillian(H, c_ops)
 
 
@@ -139,7 +147,7 @@ def bose_hubbard_hamiltonian(L, N, J, U, restrict_symmetry=False, k=1):
     """
 
     # filter to total particle number = N
-    basis_list = bose_basis(L, N, fixed_N=True)
+    basis_list = bose_basis(L, N, fixed_N=True, n_local_max=None)
 
     # basis: list of tuples with fixed N
     state_index = {tuple(s): i for i,s in enumerate(basis_list)}
@@ -187,19 +195,22 @@ def bose_hubbard_hamiltonian(L, N, J, U, restrict_symmetry=False, k=1):
     return H_red
 
 
-def bose_basis(L, N, fixed_N=True):
+def bose_basis(L, N, fixed_N=True, n_local_max=None):
     """Builds Bose basis in Fock space
 
     Args:
         L (int): number of sites
         N (int): total number of excitaions
         fixed_N (bool, optional): TRUE if all basis states have conserved # of excitations. Defaults to True.
+        n_local_max (int): site cutoff. Default to None.
 
     Returns:
         list: basis states (int tuples)
     """
 
-    n_local_max = N
+    if n_local_max is None:
+        n_local_max = N 
+
     all_configs = itertools.product(range(n_local_max+1), repeat=L)
 
     if fixed_N:
