@@ -1,7 +1,6 @@
 import numpy as np
-import math
-import itertools
 import qutip as qt
+import itertools
 
 import qm_statistics as stat
 import plot as plot
@@ -292,50 +291,3 @@ def comm (A, B):
     return A @ B - B @ A
 
 
-################################ DEPRECATED ################################
-
-def bose_hubbard_lindbladian_deprecated(L=3, N=2, J=1.0, U=1.0, gamma=0.1, restrict_symmetry=False):
-
-    basis_list = bose_basis(L, N, fixed_N=False)
-    idx_map = {cfg: i for i, cfg in enumerate(basis_list)}
-
-    # local Hilbert space dimension (cutoff N)
-    d = N + 1
-    dim = d ** L
-
-    # bosonic operators for one site
-    a  = qt.destroy(d)
-    n  = a.dag() * a
-
-    # Build tensor operators for each site
-    a_list, n_list = [], []
-    for j in range(L):
-        op_list = [qt.qeye(d) for _ in range(L)]
-        op_list[j] = a
-        a_list.append(qt.tensor(op_list)) 
-
-        op_list[j] = n
-        n_list.append(qt.tensor(op_list)) 
-
-    # Bose-Hubbard Hamiltonian
-    H = 0
-
-    # hopping (closed boundary)
-    for i in range(L):
-        j = (i + 1) % L
-        H += -J * (a_list[i].dag() * a_list[j] + a_list[j].dag() * a_list[i])
-
-    # onsite interaction
-    for j in range(L):
-        H += U / N * n_list[j] * (n_list[j] - qt.qeye(H.dims[0]))
-    
-    # collapse operators (loss at each site)
-    #c_ops = [np.sqrt(gamma) * a_j for a_j in a_list]
-
-    c_ops = [np.sqrt(gamma) * a_list[0], 2*np.sqrt(gamma) * a_list[1]]
-
-    # Build Liouvillian
-    L_op = qt.liouvillian(H, c_ops)
-
-    if not restrict_symmetry:
-        return L_op

@@ -1,6 +1,8 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from qm_statistics import *
+from datetime import datetime
+from scipy.stats import gaussian_kde
 
 
 
@@ -23,7 +25,7 @@ def plot_level_density (spacings, funcs=[], bins=50, range=(0,3)):
 
     plt.show()
 
-def plot_complex_ratios(z):
+def plot_complex_ratios(z, show=True, filename=None, real=False, map="color"):
     """Plots complex spacing ratio statistics in the complex plane and both the absolute value |z| and arg(z) dependent histograms
 
     Args:
@@ -112,7 +114,7 @@ def plot_NN_spacings(s_norm, funcs=[], bins=50, range=(0,3)):
     plt.show()
 
 
-def plot_eigenvalues(evals):
+def plot_spectrum(evals):
     """Plots eigenvalues in the complex plane
 
     Args:
@@ -121,7 +123,7 @@ def plot_eigenvalues(evals):
 
     evals = np.asarray(evals)
 
-    plt.figure()
+    plt.figure(figsize=(7,5))
 
     plt.scatter(evals.real, evals.imag, s=4, alpha=0.7)
 
@@ -134,3 +136,5 @@ def plot_eigenvalues(evals):
     
     plt.tight_layout()
     plt.show()
+
+
