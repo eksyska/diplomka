@@ -1,10 +1,44 @@
 import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.neighbors import NearestNeighbors
-from scipy.spatial import cKDTree
+from scipy.spatial import cKDTree, KDTree
 from scipy import stats, spatial
 import mpmath as mp
 
+
+
+########################## COMPLEX SPACING RATIOS ##########################
+
+def complex_spacing_ratios(evals):
+    """Compute complex spacing ratios for a list/array of complex eigenvalues.
+
+    Args:
+        evals (complex float array): eigenvalues
+
+    Returns:
+        float: array of complex spacing ratios
+    """
+    
+    print(f"[*] computing complex spacing ratios")
+
+    #evals, n_removed = remove_near_duplicates(evals)
+    #print("removed:", n_removed)
+    evals = np.asarray(evals)
+    pts = np.column_stack([evals.real, evals.imag])
+    tree = cKDTree(pts)
+    distances, indices = tree.query(pts, k=3)  # k=1 is self, k=2 NN, k=3 NNN
+
+    r1 = evals[indices[:, 1]] - evals
+    r2 = evals[indices[:, 2]] - evals
+    r1 = clean_num_error(r1)
+    r2 = clean_num_error(r2)
+
+    z = r1 / r2
+    valid_mask = np.isfinite(z)
+    z = z[valid_mask]
+    r = np.abs(z)
+
+    return z, r
 
 ########################## SPACING STATISTICS ##########################
 
@@ -99,30 +133,22 @@ def cut_edges(evals, edge_frac):
     num_states = int(np.floor(len(evals)*edge_frac))
     return evals[num_states : -num_states]
 
-########################## COMPLEX SPACING RATIOS ##########################
+########################## USEFUL FUNCS ##########################
 
-def complex_spacing_ratios(evals):
-    """Compute complex spacing ratios for a list/array of complex eigenvalues.
+def clean_num_error(values, tol=1e-10):
+    """Zero out real or imaginary parts of eigenvalues within numerical tolerance.
 
     Args:
-        evals (complex float array): eigenvalues
+        values (np.ndarray): complex eigenvalues
+        tol (float): tolerance threshold
 
     Returns:
-        float: array of complex spacing ratios
+        np.ndarray: cleaned eigenvalues
     """
-
-    #evals, n_removed = remove_near_duplicates(evals)
-    #print("removed:", n_removed)
-    evals = np.asarray(evals)
-    pts = np.column_stack([evals.real, evals.imag])
-
-    nn = NearestNeighbors(n_neighbors=3).fit(pts)
-
-    distances, indices = nn.kneighbors(pts)
-
-    r1 = evals[indices[:, 1]] - evals
-    r2 = evals[indices[:, 2]] - evals
-    return r1 / r2
+    values = values.copy()
+    values.real[np.abs(values.real) < tol] = 0.0
+    values.imag[np.abs(values.imag) < tol] = 0.0
+    return values
 
 def remove_near_duplicates(evals, eps=1e-8):
     """Remove eigenvalues that are closer than eps in the complex plane."""
@@ -141,11 +167,6 @@ def remove_near_duplicates(evals, eps=1e-8):
     cleaned = evals[mask]
     return cleaned, len(to_remove)
 
-
-
-
-########################## USEFUL FUNCS ##########################
-
 def poisson(s):
     return np.exp(-s)
 
@@ -155,10 +176,32 @@ def poisson2d(s):
 def wigner(s):
     return np.pi/2 * s * np.exp(-np.pi/4 * s**2)
 
+def p_ginUE(s, K=50, J=50):
+    """computes Ginimbre ansamble from p_GIN (s) = product_k(gamma_func(1+l, s^2)/k!) sum_j((2s^2j+1 e^-s^2)/gamma_func(1+j, s^2))
 
+    Args:
+        s (_type_): _description_
+        K (int, optional): _description_. Defaults to 50.
+        J (int, optional): _description_. Defaults to 50.
 
+    Returns:
+        _type_: _description_
+    """
 
+    mp.mp.dps = 50
 
+    s = mp.mpf(s)
+    s2 = s**2
 
+    # infinite product (truncated)
+    prod = mp.mpf(1)
+    for k in range(1, K + 1):
+        prod *= mp.gammainc(1 + k, s2, mp.inf) / mp.factorial(k)
 
+    # infinite sum (truncated)
+    summ = mp.mpf(0)
+    for j in range(1, J + 1):
+        summ += (2 * s**(2*j + 1) * mp.e**(-s2)) / mp.gammainc(1 + j, s2, mp.inf)
+
+    return prod * summ
 
