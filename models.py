@@ -66,17 +66,34 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, c_ops_template, restrict_symmetr
     
     T_op = translation_operator(basis_list)
     T_L = qt.sprepost(T_op, T_op.dag())
-    evals, evecs = T_L.eigenstates()
-
-    eval_sub = np.exp(1j * 2*np.pi * k / L) #select eigenvalue eccording to momentum sector k (has the form e^(i*2pi*k/L))
+    t_evals, t_evecs = T_L.eigenstates()
     tol = 1e-8
 
-    indices = [i for i, ev in enumerate(evals) if abs(ev - eval_sub) < tol]
+    P_op = parity_operator(basis_list)
+    P_L_full = qt.sprepost(P_op, P_op.dag()).full()
+    parity_k = {0} | ({L // 2} if L % 2 == 0 else set())
 
-    P = qt.Qobj(np.column_stack([evecs[i].full().ravel() for i in indices]))
-    L_red = qt.Qobj(P.dag() @ L_op.full() @ P)
+    L_op_full = L_op.full()
 
-    return L_red
+    L_op_sectors = []
+    for k in range(L):
+        eval_sub = np.exp(1j * 2 * np.pi * k / L)
+        t_indices = [i for i, ev in enumerate(t_evals) if abs(ev - eval_sub) < tol]
+        P_k = np.column_stack([t_evecs[i].full().ravel() for i in t_indices])
+
+        if k in parity_k:
+            P_L_k = np.conj(P_k).T @ P_L_full @ P_k
+            p_evals, p_evecs = np.linalg.eigh(P_L_k)
+            for p in [+1, -1]:
+                p_indices = [i for i, ev in enumerate(p_evals) if abs(ev - p) < tol]
+                if not p_indices:
+                    continue
+                P_kp = P_k @ p_evecs[:, p_indices]
+                L_op_sectors.append(qt.Qobj(np.conj(P_kp).T @ L_op_full @ P_kp))
+        else:
+            L_op_sectors.append(qt.Qobj(np.conj(P_k).T @ L_op_full @ P_k))
+
+    return L_op_sectors
 
 def build_a_i(site, basis_list):
     """Builds annihilation operator on site
@@ -230,6 +247,25 @@ def translation_operator(basis):
         T[j, i] = 1.0 # <j|T|i> = 1 <=> T|i> = |j>
 
     return qt.Qobj(T)
+
+def reflect(state):
+    """Reflects a state"""
+    state = tuple(state)
+    return tuple(reversed(state))
+
+def parity_operator(basis):
+    """Builds parity operator P: site i -> L-1-i."""
+
+    dim = len(basis)
+    # assign index i to every basis state
+    state_index = {tuple(s): i for i, s in enumerate(basis)}
+
+    P = lil_matrix((dim, dim), dtype=complex)
+    for i, s in enumerate(basis):
+        j = state_index[reflect(s)]
+        P[j, i] = 1.0
+
+    return qt.Qobj(P)
 
 
 def comm (A, B):
