@@ -30,26 +30,60 @@ def plot_complex_ratios(z):
         z (complex float array): complex spacing ratios
     """
 
-    fig, ax = plt.subplots(1, 3, figsize=(12, 3))
+    if not real:
 
-    ax[0].scatter(z.real, z.imag, s=1, alpha=0.5)
-    circle = plt.Circle((0, 0), 1, color='gray', fill=False, linestyle='--')
-    ax[0].add_artist(circle)
-    ax[0].set_aspect('equal')
-    ax[0].set_title("Complex spacing ratios")
+        fig, ax = plt.subplots(1, 3, figsize=(12, 3))
 
-    ax[1].hist(np.abs(z), bins=50, density=True, color='C1', alpha=0.7)
-    ax[1].set_xlabel("|z|")
-    ax[1].set_ylabel("P(|z|)")
-    ax[1].set_title("Histogram of |z|")
+        if map == "scatter":
+            ax[0].scatter(z.real, z.imag, s=1, alpha=0.5)
 
-    ax[2].hist(np.angle(z), bins=50, density=True, color='C2', alpha=0.7)
-    ax[2].set_xlabel("arg(z)")
-    ax[2].set_ylabel("P(arg z)")
-    ax[2].set_title("Histogram of arg(z)")
+        elif map == "color":
+            points = np.vstack([z.real, z.imag])
+            kde = gaussian_kde(points, bw_method=0.15)
+
+            grid_lim = 1.2
+            xi, yi = np.mgrid[-grid_lim:grid_lim:300j, -grid_lim:grid_lim:300j]
+            zi = kde(np.vstack([xi.ravel(), yi.ravel()])).reshape(xi.shape)
+
+            im = ax[0].pcolormesh(xi, yi, zi, cmap='coolwarm', shading='gouraud')
+            plt.colorbar(im, ax=ax[0], label='Density')
+
+        circle = plt.Circle((0, 0), 1, color='gray', fill=False, linestyle='--')
+        ax[0].add_artist(circle)
+        ax[0].set_aspect('equal')
+        ax[0].set_title("Complex spacing ratios")
+
+        ax[1].hist(np.abs(z), bins=50, density=True, color='C1', alpha=0.7)
+        ax[1].set_xlabel("|z|")
+        ax[1].set_ylabel("P(|z|)")
+        ax[1].set_title("Histogram of |z|")
+
+        ax[2].hist(np.angle(z), bins=50, density=True, color='C2', alpha=0.7)
+        ax[2].set_xlabel("arg(z)")
+        ax[2].set_ylabel("P(arg z)")
+        ax[2].set_title("Histogram of arg(z)")
+
+    if real:
+        fig, ax = plt.subplots(1, 1, figsize=(4, 3))
+
+        ax.hist(z.real, bins=50, density=True, color='C2', alpha=0.7)
+        ax.set_xlabel("r")
+        ax.set_ylabel("P(r)")
+        ax.set_title("Histogram of arg(z)")
 
     plt.tight_layout()
-    plt.show()
+
+    if show:
+        plt.show()
+
+    elif not show:
+
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        if filename != None:
+            
+            plt.savefig(f"figs/sp_{filename}_{timestamp}.png")
+        else:
+            plt.savefig(f"figs/sp_{timestamp}.png")
 
 
 def plot_NN_spacings(s_norm, funcs=[], bins=50, range=(0,3)):
