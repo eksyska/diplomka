@@ -1,0 +1,11 @@
+# Dependencies
+__pycache__/
+
+# IDE
+.vscode/
+
+# Build/output
+figs/
+*.npy
+*.txt
+
