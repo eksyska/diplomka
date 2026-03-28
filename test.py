@@ -10,11 +10,12 @@ from miscelaneous import *
 #np.set_printoptions(threshold=np.inf)
 
 L = 3
-N = 6
+N = 7
 n_local_max = 5
 J = -0.4
 U = 1.0
-gamma = 0.1
+gamma1 = 0.2
+gamma2 = 0.05
 
 """
 kappa = 0.2
@@ -23,17 +24,16 @@ gamma = kappa*eta
 gamma2 = kappa*(eta+1)
 """
 
-symmetric = False
-dissipation = "DEPHASING" # DEPHASING / LOSS
+gamma = [gamma1, gamma2]
+
+symmetric_dissipation = False
+dissipation = "PUMPLOSS" # DEPHASING / LOSS
+M = 1 # N symmetry sector
 
 c_ops_template1 = [1,0.7,1.3,1.5]
 c_ops_template_sym = [1,1,1,1]
 
-# L=3, N=4, J=-0.5, gamma=0.5
-# L=3, N=4, J=-0.5, gamma=0.2-0.3
-# L=3, N=5, J=-0.5, gamma=0.1, c_ops_template2 = [1,1,3]
 # L=3, N=4, J=-0.5, gamma=0.2-0.3, c_ops_template2 = [1,1,10] -> zajímavé pruhy eigenvalues
-#outdated N=2, gamma = 0.5, J = 0.1 - 0.4 and -0.6 - -0.2
 
 test_lindbladian = True
 test_hamiltonian = False
@@ -57,30 +57,37 @@ def symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_loca
 
     plot_complex_ratios(z_pooled, show=False, filename=filename, map="color")
 
-filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}"
+filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
 
 if test_lindbladian:
 
-    if symmetric:
+    if symmetric_dissipation:
 
         #symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max, restrict_symmetry=True)
+        """
         for J in ((-0.5,-0.2,0.2,0.5)):
             for gamma in ((0.1,0.2,0.4)):
 
                 filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}"
                 symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max)
+        """
 
-    if not symmetric:
+    if not symmetric_dissipation:
 
-        L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max, restrict_symmetry=False, gamma2=gamma2)
+        L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max, restrict_symmetry=False)
+        sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=1)
+        plot_spectrum(np.concatenate(list(sector_evals.values())))
+        all_z = sector_stats(sector_evals)
+        plot_complex_ratios(all_z, show=False, filename=filename)
 
+        """
         evals = L_op.eigenenergies()
         evals = clean_num_error(evals)
         plot_spectrum(evals)
         z, r = complex_spacing_ratios(evals)
         r_mean = r.mean()
         #print(f"⟨r⟩ = {r_mean:.4f}  (GinUE: 0.739, Poisson: 0.500)")
-        plot_complex_ratios(z, show=True, filename=filename, map="color")
+        plot_complex_ratios(z, show=True, filename=filename, map="color")"""
 
     """
     for J in ((-0.5,-0.3,-0.1,0.1,0.3,0.5)):
@@ -114,7 +121,7 @@ if test_lindbladian:
 
 if test_hamiltonian:
 
-    H_op = bose_hubbard_hamiltonian(L, N, J, U, restrict_symmetry=True, k=k)
+    H_op = bose_hubbard_hamiltonian(L, N, J, U, restrict_symmetry=True)
     evals = H_op.eigenenergies()
 
 
