@@ -2,9 +2,6 @@ import numpy as np
 import qutip as qt
 import itertools
 
-import qm_statistics as stat
-import plot as plot
-
 from scipy.sparse import lil_matrix
 from scipy.sparse import dok_matrix
 
@@ -68,10 +65,18 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template
     L_op = qt.liouvillian(H, c_ops)
 
 
+    #check commutator L_op, N_op (should be 0)
+    """
     I_super = qt.qeye(L_op.shape[0])
     I_super.dims = L_op.dims
     L_op_shifted = L_op - (L_op.tr() / I_super.tr()) * I_super
-    
+
+    N_super_op = N_super(basis_list)
+
+    comm_LN = comm(L_op_shifted.full(), N_super_op.full())
+    print(f"||[L, N]|| = {np.linalg.norm(comm_LN):.2e}")
+    """
+
     if not restrict_symmetry:
         return L_op
     
@@ -105,6 +110,52 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template
             L_op_sectors.append(qt.Qobj(np.conj(P_k).T @ L_op_full @ P_k))
 
     return L_op_sectors
+
+def lindblad_eigenvalues_by_M(L_op, L, N, n_local_max, M_chosen=None):
+    """Compute Lindbladian eigenvalues separately for each M = N_a - N_b sector.
+    M is the super-particle number: eigenvalue of N = n⊗I - I⊗n^T.
+    This is an exact weak symmetry of the Lindbladian: [L, N] = 0.
+    
+    Args:
+        L_op (Qobj): Bose-Hubbard lindbladian
+        L (int): number of sites
+        N (int): number of excitations
+        n_local_max (int): site cuttoff
+        M_chosen (int): sector to compute evals in. Defaults to None (all sectors computed)
+
+    Returns:
+        dict: {M: eigenvalues} for M = -N, ..., N
+    """
+
+    basis_list = bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
+    n_per_state = np.array([sum(s) for s in basis_list])
+    dim = len(basis_list)
+
+    L_mat = L_op.full()
+
+    sector_evals = {}
+
+    if M_chosen == None:
+        M_range = range(-N, N + 1)
+    else:
+        M_range = [M_chosen]
+
+    for M in M_range:
+
+        print(f"[*] computing evals for M={M}")
+
+        # indices a*dim+b to store rho_ab where N_a-N_b=M (defines the block)
+        liou_idx = np.array([a * dim + b for a, Na in enumerate(n_per_state) for b, Nb in enumerate(n_per_state) if Na - Nb == M])
+
+        #blocks <2 cannot produce spacing ratios
+        if len(liou_idx) < 2:
+            continue
+
+        #extract the block M and diagonalize it independently
+        block = L_mat[np.ix_(liou_idx, liou_idx)]
+        sector_evals[M] = np.linalg.eigvals(block)
+
+    return sector_evals
 
 def build_a_i(site, basis_list):
     """Builds annihilation operator on site
@@ -281,6 +332,28 @@ def parity_operator(basis):
 
     return qt.Qobj(P)
 
+def N_super(basis):
+    """Builds super-particle number operator N = n⊗I - I⊗n^T in Liouville space.
+
+    Eigenvalue of N on |Na><Nb| is Na - Nb.
+
+    Args:
+        basis (list): basis states
+
+    Returns:
+        Qobj: super-particle number superoperator
+    """
+    n_per_state = np.array([sum(s) for s in basis])
+    dim = len(basis)
+
+    # number operator as diagonal matrix
+    n_op = qt.Qobj(np.diag(n_per_state.astype(complex)))
+
+    # N = n⊗I - I⊗n^T
+    I = qt.qeye(dim)
+    N_super = qt.sprepost(n_op, I) - qt.sprepost(I, n_op.trans())
+
+    return N_super
 
 def comm (A, B):
     """Computes commutator

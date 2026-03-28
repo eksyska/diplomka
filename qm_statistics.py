@@ -40,6 +40,32 @@ def complex_spacing_ratios(evals):
 
     return z, r
 
+def sector_stats (sector_evals, stats_func=complex_spacing_ratios):
+    """Compute complex spacing ratios (or different statistics) within each M sector and pool results.
+
+    Args:
+        sector_evals (dict): {M: eigenvalues} split into sectors defined by N superoperator eigenvalues
+        stats_func (callable): function that accepts evals and returns (z, r). Defaults to complex_spacing_ratios.
+
+    Returns:
+        np.ndarray: pooled complex spacing ratios z
+    """
+    all_z = []
+    for M, evals in sector_evals.items():
+
+        #blocks <2 cannot produce spacing ratios
+        if len(evals) < 3:
+            continue
+
+        z, r = stats_func(evals)
+        all_z.append(z)
+        print(f"M={M:+d}: dim={len(evals)}, ⟨r⟩={r.mean():.4f}") #sector M statistics
+
+    z_pooled = np.concatenate(all_z)
+    print(f"Pooled ⟨r⟩ = {np.abs(z_pooled).mean():.4f}  (GinUE: 0.739, Poisson: 0.500)") #total statistics
+
+    return z_pooled
+
 ########################## SPACING STATISTICS ##########################
 
 def level_spacings(evals, unfolding=False, degree=5):
