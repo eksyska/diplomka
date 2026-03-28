@@ -12,7 +12,7 @@ from miscelaneous import *
 
 
 
-def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, restrict_symmetry=False, gamma2=1):
+def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, restrict_symmetry=False):
     """Builds Bose-Hubbard model Lindbladian, can be reduced to translation symmetry subspace
 
     Args:
@@ -20,9 +20,9 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template
         N (int): number of excitations
         J (float): 2-site interaction strength
         U (float): on-site interaction strength
-        gamma (float): dissipation strength
-        c_ops_template (array): list of dissipation coefficients on sites
-        n_local_max (int): site cuttof. Defaults to None.
+        gamma (array float): dissipation strength
+        c_ops_template (array float): list of dissipation coefficients on sites
+        n_local_max (int): site cuttoff. Defaults to None.
         restrict_symmetry (bool, optional): TRUE if we want to restrict the Lindbladian to a translation subspace. Defaults to False.
         k (int, optional): momentum sector (if we restrict to a subspace). Defaults to 0.
 
@@ -54,12 +54,16 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template
     # jump operators for dissipation
     c_ops = []
     for i in range(L):
+
         if dissipation_type == 'DEPHASING':
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma) * a_list[i].dag() * a_list[i])
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i].dag() * a_list[i])
+
         elif dissipation_type == 'LOSS':
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma) * a_list[i])
-    #c_ops = [np.sqrt(gamma) * a_list[i], np.sqrt(gamma) * a_list[i] * a_list[i], np.sqrt(gamma) * a_list[i].dag() * a_list[i] * a_list[i]]  
-    #c_ops = [np.sqrt(gamma)*a_list[i], np.sqrt(2)*np.sqrt(gamma)*a_list[i], np.sqrt(gamma2)*a_list[i].dag()]
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i])
+
+        elif dissipation_type == 'PUMPLOSS':
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i])
+            c_ops.append(c_ops_template[i]*np.sqrt(gamma[1]) * a_list[i].dag())
 
     L_op = qt.liouvillian(H, c_ops)
 
