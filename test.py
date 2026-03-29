@@ -40,9 +40,9 @@ test_hamiltonian = False
 
 time_start = time.time()
 
-def symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max, restrict_symmetry=True):
+def symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=True):
 
-    L_red = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max, restrict_symmetry=restrict_symmetry)
+    L_red = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=restrict_symmetry)
 
     all_z = []
     for k_val, L_red_k in enumerate(L_red):
@@ -56,6 +56,15 @@ def symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_loca
     print(f"Pooled ⟨r⟩ = {np.abs(z_pooled).mean():.4f}")
 
     plot_complex_ratios(z_pooled, show=False, filename=filename, map="color")
+
+def routine1(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=False):
+
+    L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=False)
+    sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=1)
+    #plot_spectrum(np.concatenate(list(sector_evals.values())))
+    all_z = sector_stats(sector_evals)
+    plot_complex_ratios(all_z, show=False, filename=filename)
+    csv_results(csv_path, L, N, J, U, gamma, dissipation, M, np.concatenate(list(sector_evals.values())), all_z)
 
 filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
 
