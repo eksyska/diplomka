@@ -83,11 +83,23 @@ if test_lindbladian:
 
     if not symmetric_dissipation:
 
+        csv_path = "data/results.csv"
+        gamma1=0.2
+        for J in ((-0.5,-0.2,0.2,0.5)):
+            for gamma2 in ((0.2,)):
+
+                gamma = [gamma1, gamma2]
+                filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
+                routine1(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max)
+                
+
+        """
         L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max, restrict_symmetry=False)
         sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=1)
         plot_spectrum(np.concatenate(list(sector_evals.values())))
         all_z = sector_stats(sector_evals)
         plot_complex_ratios(all_z, show=False, filename=filename)
+        """
 
         """
         evals = L_op.eigenenergies()
