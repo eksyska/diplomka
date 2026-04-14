@@ -4,7 +4,7 @@ from models import *
 from qm_statistics import *
 from plot import *
 from models import *
-from miscelaneous import *
+from outputs import *
 
 ################################ MODELS ################################
 

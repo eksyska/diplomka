@@ -1,11 +1,10 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import time
-from models import *
 from qm_statistics import *
 from plot import *
 from models import *
-from miscelaneous import *
+from outputs import *
 
 #np.set_printoptions(threshold=np.inf)
 

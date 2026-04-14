@@ -2,10 +2,10 @@ import numpy as np
 import qutip as qt
 import itertools
 
-from scipy.sparse import lil_matrix
-from scipy.sparse import dok_matrix
+from scipy.sparse import lil_matrix, dok_matrix
+from collections import defaultdict
 
-from miscelaneous import *
+from math_funcs import *
 
 
 
