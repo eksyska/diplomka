@@ -1,20 +1,25 @@
 import numpy as np
 import pandas as pd
 import os
+from models import *
 
-def export_matrix(matrix):
+
+def export_matrix(matrix, filename="matrix_output"):
     """Exports matrix to a .txt file
 
     Args:
         matrix (2darray): matrix to export
     """
 
-    with open("matrix_output.txt", "w") as f:
+    path = f"data/{filename}.txt"
+    with open(path, "w") as f:
+
         for row in matrix:
-            formatted_row = " ".join(f"{val.real:10.2f}" for val in row)
+
+            formatted_row = " ".join(f"{val:.2f}" for val in row)
             f.write(formatted_row + "\n")
 
-    print("Matrix saved to matrix_output.txt")
+    print(f"Matrix saved to {path}")
 
 def csv_results(csv_path, L, N, J, U, gamma, dissipation, M, evals, z):
     """Append sector statistics to a CSV file, creating it if it doesn't exist."""
