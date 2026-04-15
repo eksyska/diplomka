@@ -25,7 +25,7 @@ def plot_level_density (spacings, funcs=[], bins=50, range=(0,3)):
 
     plt.show()
 
-def plot_complex_ratios(z, show=True, filename=None, real=False, map="color"):
+def plot_complex_ratios(z, show=True, path=None, real=False, map="color"):
     """Plots complex spacing ratio statistics in the complex plane and both the absolute value |z| and arg(z) dependent histograms
 
     Args:
@@ -80,12 +80,16 @@ def plot_complex_ratios(z, show=True, filename=None, real=False, map="color"):
 
     elif not show:
 
+        filename=path[0]
+        if len(path) > 0:
+            subfolder = path[1] + "/"
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         if filename != None:
             
-            plt.savefig(f"figs/sp_{filename}_{timestamp}.png")
+            plt.savefig(f"figs/{subfolder}{filename}_{timestamp}.png")
         else:
-            plt.savefig(f"figs/sp_{timestamp}.png")
+            plt.savefig(f"figs/{subfolder}{timestamp}.png")
 
 
 def plot_NN_spacings(s_norm, funcs=[], bins=50, range=(0,3)):

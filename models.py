@@ -160,6 +160,33 @@ def build_a_i_sym(site, sym_basis):
     return qt.Qobj(data.tocsr())
 
 
+def liouvillian_blocks(lind) -> dict:
+
+    L_op = lind.L_op
+    L = lind.L
+    sym_basis = lind.basis
+
+    dim_H = len(sym_basis)
+    all_n = [s.n for s in sym_basis]
+
+    block_indices = defaultdict(list)
+
+    for i, si in enumerate(sym_basis):
+
+        for j, sj in enumerate(sym_basis):
+
+            kappa = (si.k - sj.k) % L
+            pi    = (si.p * sj.p) if (si.p is not None and sj.p is not None) else None
+            M     = all_n[i] - all_n[j]
+            block_indices[(kappa, pi, M)].append(i + j * dim_H)
+
+    L_dense = L_op.full()
+
+    blocks = {label: (indices, L_dense[np.ix_(indices, indices)]) for label, indices in block_indices.items()}
+
+    return blocks
+
+
 
 ###################################### BASIS BUILDING ######################################
 

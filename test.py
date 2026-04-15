@@ -8,10 +8,10 @@ from outputs import *
 
 #np.set_printoptions(threshold=np.inf)
 
-L = 3
-N = 7
+L = 4
+N = 2
 n_local_max = 5
-J = -0.4
+J = -0.2
 U = 1.0
 gamma1 = 0.2
 gamma2 = 0.05
@@ -22,15 +22,22 @@ eta = 0.3
 gamma = kappa*eta
 gamma2 = kappa*(eta+1)
 """
+M=None
 
-gamma = [gamma1, gamma2]
 
-symmetric_dissipation = False
-dissipation = "PUMPLOSS" # DEPHASING / LOSS
-M = 1 # N symmetry sector
+symmetric_dissipation = True
+dissipation = "PUMPLOSS" # DEPHASING / LOSS / PUMPLOSS
 
-c_ops_template1 = [1,0.7,1.3,1.5]
-c_ops_template_sym = [1,1,1,1]
+if dissipation=="PUMPLOSS":
+    gamma = (gamma1, gamma2)
+else:
+    gamma = (gamma1,)
+
+c_ops_template1 = (1,0.7,1.3,1.5)
+c_ops_template_sym = (1,1,1,1)
+
+filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
+subfolder = "dephasing"
 
 # L=3, N=4, J=-0.5, gamma=0.2-0.3, c_ops_template2 = [1,1,10] -> zajímavé pruhy eigenvalues
 
@@ -56,41 +63,69 @@ def symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template, n_local_ma
 
     plot_complex_ratios(z_pooled, show=False, filename=filename, map="color")
 
-def routine1(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=False):
+def routine1(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max):
 
-    L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max, restrict_symmetry=False)
-    sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=1)
+    L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template, n_local_max=n_local_max)
+    sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=M, symmetric=False)
     #plot_spectrum(np.concatenate(list(sector_evals.values())))
     all_z = sector_stats(sector_evals)
-    plot_complex_ratios(all_z, show=False, filename=filename)
-    csv_results(csv_path, L, N, J, U, gamma, dissipation, M, np.concatenate(list(sector_evals.values())), all_z)
-
-filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
+    plot_complex_ratios(all_z, show=True, path=(filename, subfolder))
+    #csv_results(csv_path, L, N, J, U, gamma, dissipation, M, np.concatenate(list(sector_evals.values())), all_z)
 
 if test_lindbladian:
 
     if symmetric_dissipation:
 
-        #symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max, restrict_symmetry=True)
+        L=3
+        N=5
+        n_local_max = N
+        
         """
+        basis = build_bose_basis(L, N, fixed_N=False)
+        sym_basis = build_sym_basis(basis)
+        """
+        lind = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max, is_symmetric=True)
+        L_op = lind.L_op
+        
+        block_evals = compute_block_evals(lind)
+        all_evals = pool_evals(block_evals)
+        plot_spectrum(all_evals)
+
+        all_z = compute_csr_from_evals(block_evals, complex_spacing_ratios)
+        plot_complex_ratios(all_z, show=True) 
+        """
+
+        #print_lindbladian_orbits(2,1, n_local_max=1,k=None)
+
+        #print_ket_orbits(L,N, n_local_max=n_local_max, k=0)
+        #print_lindbladian_orbits(L,N,n_local_max=n_local_max, k=0)
+        #symmetric_routine_sectors(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max)
+        
         for J in ((-0.5,-0.2,0.2,0.5)):
             for gamma in ((0.1,0.2,0.4)):
 
                 filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}"
                 symmetric_routine(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max)
-        """
+        
+
+        L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template_sym, n_local_max=n_local_max)
+        sector_evals = lindblad_eigenvalues_by_M(L_op, L, N, n_local_max=n_local_max, M_chosen=1, symmetric=True)
+        #plot_spectrum(np.concatenate(list(sector_evals.values())))
+        all_z = sector_stats(sector_evals)
+        plot_complex_ratios(all_z, show=True, filename=filename)"""
 
     if not symmetric_dissipation:
 
+        """
         csv_path = "data/results.csv"
-        gamma1=0.2
         for J in ((-0.5,-0.2,0.2,0.5)):
-            for gamma2 in ((0.2,)):
+            for gamma1 in ((0.1,0.2,0.3,0.4)):
 
-                gamma = [gamma1, gamma2]
+                gamma = (gamma1,)
                 filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
                 routine1(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max)
-                
+        """
+        routine1(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max)     
 
         """
         L_op = bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation, c_ops_template1, n_local_max=n_local_max, restrict_symmetry=False)
@@ -155,26 +190,6 @@ if test_hamiltonian:
     print(f"⟨r⟩ = {r_mean:.4f}  (GOE: 0.536, Poisson: 0.386)")
     plot_complex_ratios(z, filename=filename, real=True)
 
-    """
-    E_diff = []
-    for m in range(len(evals)):
-        for n in range(len(evals)):
-            E_diff.append(-(evals[m] - evals[n]))
-    E_diff = np.array(E_diff)
-    E_diff = np.sort(E_diff[abs(E_diff) < 1e10])
-    """
-
-
-
-#np.save("im_evals.npy", im_evals)
-#np.save("E_diffs.npy", E_diff)
-
-#check of pure poisson statistics
-"""
-evals = np.cumsum(np.random.exponential(1, 2000))
-spacings = level_spacings(evals, unfolding=True)
-plot_level_density(spacings, funcs=[poisson, wigner], range=(0,5))
-"""
 
 #check of consistency between hamiltonian and lindbladian (for no dissipacy) code:
 """
@@ -196,4 +211,4 @@ print(len(im_evals), len(E_diff))
 
 time_end = time.time()
 
-print("time: " + str(time_end - time_start))
+print(f"time = {(time_end-time_start):.3f} s")
