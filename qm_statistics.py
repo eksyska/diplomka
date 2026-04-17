@@ -10,23 +10,22 @@ from models import *
 
 
 #only for non-symmetric dissipation
-def lindblad_eigenvalues_by_M(L_op, L, N, n_local_max, M_chosen=None):
+def lindblad_eigenvalues_by_M(lind, M_chosen=None):
     """Compute Lindbladian eigenvalues separately for each M = N_a - N_b sector.
     M is the super-particle number: eigenvalue of N = n⊗I - I⊗n^T.
-    This is an exact weak symmetry of the Lindbladian: [L, N] = 0.
     
     Args:
-        L_op (Qobj): Bose-Hubbard lindbladian
-        L (int): number of sites
-        N (int): number of excitations
-        n_local_max (int): site cuttoff
+        lind (Lindbladian): lindbladian
         M_chosen (int): sector to compute evals in. Defaults to None (all sectors computed)
 
     Returns:
         dict: {M: eigenvalues} for M = -N, ..., N
     """
 
-    basis_list = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
+    L_op = lind.L_op
+    N = lind.N
+    basis_list = lind.basis
+
     n_per_state = np.array([sum(s) for s in basis_list])
     dim = len(basis_list)
 
