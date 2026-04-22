@@ -6,160 +6,116 @@ from scipy import stats, spatial
 import mpmath as mp
 
 from math_funcs import *
+from math_funcs import _ALL
 from models import *
 
+########################## BLOCK SPLITTING ##########################
 
-#only for non-symmetric dissipation
-def lindblad_eigenvalues_by_M(lind, M_chosen=None):
-    """Compute Lindbladian eigenvalues separately for each M = N_a - N_b sector.
-    M is the super-particle number: eigenvalue of N = n⊗I - I⊗n^T.
-    
-    Args:
-        lind (Lindbladian): lindbladian
-        M_chosen (int): sector to compute evals in. Defaults to None (all sectors computed)
-
-    Returns:
-        dict: {M: eigenvalues} for M = -N, ..., N
-    """
-
-    L_op = lind.L_op
-    N = lind.N
-    basis_list = lind.basis
-
-    n_per_state = np.array([sum(s) for s in basis_list])
-    dim = len(basis_list)
-
-    L_full = L_op.full()
-    
-    sector_evals = {}
-
-    if M_chosen == None:
-        M_range = range(-N, N + 1)
-    else:
-        M_range = np.array(M_chosen, ndmin=1)
-
-    for M in M_range:
-
-        print(f"[*] computing evals for M={M}")
-
-        # indices a*dim+b to store rho_ab where N_a-N_b=M (defines the block)
-        liou_idx = np.array([a * dim + b for a, Na in enumerate(n_per_state) for b, Nb in enumerate(n_per_state) if Na - Nb == M])
-
-        #blocks <2 cannot produce spacing ratios
-        if len(liou_idx) < 2:
-            continue
-
-        #extract the block M and diagonalize it independently
-        L_block = L_full[np.ix_(liou_idx, liou_idx)]
-
-        evals = np.linalg.eigvals(L_block)
-        sector_evals[M] = evals
-
-    return sector_evals
-
-def compute_block_evals(lind, include=None):
-    """Compute eigenvalues separately for each Liouvillian block.
+def evals_from_blocks(blocks):
+    """Diagonalize prebuilt blocks
 
     Args:
-        L_op      (Qobj):      Liouvillian in symmetry basis
-        sym_basis (list):      list of SymStates
-        L         (int):       number of sites
-        include   (set/list):  block labels to include, or None for all
+        blocks (dict): label -> np.ndarray block matrix
 
     Returns:
-        dict: label -> np.ndarray of eigenvalues
+        dict: label -> np.ndarray eigenvalues
     """
-
-    blocks = liouvillian_blocks(lind)
-    block_evals = {}
-
-    for label, (indices, submatrix) in blocks.items():
-        if include is not None and label not in include:
-            continue
-        if len(indices) < 3:
-            continue
-
-        block_evals[label] = np.linalg.eigvals(submatrix)
-        print(f"block {label}: {len(block_evals[label])} evals")
-
+    
+    block_evals = {label: np.linalg.eigvals(block) for label, block in blocks.items()}
     return block_evals
 
-def pool_evals(block_evals, kappa=None, pi=None, M=None):
-    """Concatenate eigenvalues from blocks matching the given sector filters.
+def pool_evals(block_evals, kappa=_ALL, M=_ALL):
+    """Concatenate eigenvalues from blocks matching the given sector filters
+
+    Usually the block eigenvalues are already filtered so there is no need to filter again
 
     Args:
-        block_evals (dict):  label -> eigenvalues, label = (kappa, pi, M)
-        kappa (int):         translation sector filter, or None for all
-        pi    (int):         parity sector filter (+1/-1/None), or None for all
-        M     (int):         particle number sector filter, or None for all
+        block_evals (dict): label -> eigenvalues
+        kappa (int or list or _Sentinel): ket-bra translation match filter. Defaults to _ALL (for all sectors)
+        M (int or list or _Sentinel): particle number filter. Defaults to _ALL (for all sectors)
 
     Returns:
         np.ndarray: concatenated eigenvalues
     """
-    
-    evals = [v for (k, p, m), v in block_evals.items() if (kappa is None or k == kappa) and (pi is None or p == pi) and (M is None or m == M)]
+
+    evals = []
+
+    for label, v in block_evals.items():
+
+        if isinstance(label, tuple) and len(label) == 3:
+            k, p, m = label
+        else:
+            k, p, m = _ALL, _ALL, label
+
+        if (kappa is _ALL or k == kappa) and (M is _ALL or m == M):
+            evals.append(v)
 
     if not evals:
-        raise ValueError(f"No blocks matched kappa={kappa}, pi={pi}, M={M}")
+        raise ValueError(f"no blocks matched kappa={kappa}, M={M}")
     
     return np.concatenate(evals)
 
+def csr_from_evals(block_evals, csr_func, kappa=_ALL, M=_ALL):
+    """Compute complex spacing ratios separately per block and pool results
 
-def compute_csr_from_evals(block_evals, csr_func, kappa=None, pi=None, M=None):
-    """Compute pooled complex spacing ratios, computing CSR per block separately.
+    Usually the block eigenvalues are already filtered so there is no need to filter again
 
     Args:
-        block_evals (dict):   label -> eigenvalues, label = (kappa, pi, M)
-        csr_func (callable):  function that takes eigenvalues and returns CSR ratios
-        kappa (int):          translation sector filter, or None for all
-        pi    (int):          parity sector filter, or None for all
-        M     (int):          particle number sector filter, or None for all
+        block_evals (dict): label -> eigenvalues
+        csr_func (callable): function that takes eigenvalues and returns complex spacing ratios
+        kappa (int or list or _Sentinel): ket-bra translation match filter. Defaults to _ALL (for all sectors)
+        M (int or list or _Sentinel): particle number filter. Defaults to _ALL (for all sectors)
 
     Returns:
         np.ndarray: pooled complex spacing ratios
     """
+
     all_ratios = []
 
-    for (k, p, m), evals in block_evals.items():
-        if (kappa is None or k == kappa) \
-        and (pi   is None or p == pi  ) \
-        and (M    is None or m == M   ):
-            ratios = csr_func(evals)
-            if isinstance(ratios, tuple):
-                ratios = ratios[0]
-            all_ratios.append(ratios.ravel())
+    for label, evals in block_evals.items():
+
+        if isinstance(label, tuple) and len(label) == 3:
+            k, p, m = label
+        else:
+            k, p, m = _ALL, _ALL, label
+
+        if (kappa is _ALL or k == kappa) and (M is _ALL or m == M):
+            
+            if len(evals) < 3:
+                continue
+
+            result = csr_func(evals)
+            ratios = (result[0] if isinstance(result, tuple) else result).ravel()
+            all_ratios.append(ratios)
 
     if not all_ratios:
-        raise ValueError(f"No blocks matched kappa={kappa}, pi={pi}, M={M}")
+        raise ValueError(f"no blocks matched kappa={kappa}, M={M}")
 
-    return np.concatenate(all_ratios)
+    pooled = np.concatenate(all_ratios)
+    print(f"pooled <|r|> = {np.abs(pooled).mean():.4f}")
+    return pooled
 
 
 ########################## COMPLEX SPACING RATIOS ##########################
 
 def complex_spacing_ratios(evals):
-    """Compute complex spacing ratios for a list/array of complex eigenvalues.
+    """Compute complex spacing ratios for a list/array of complex eigenvalues
 
     Args:
-        evals (complex float array): eigenvalues
+        evals (float np.array): Lindbladian eigenvalues
 
     Returns:
-        float: array of complex spacing ratios
+        float np.array: complex spacing ratios
     """
-    
-    print(f"[*] computing complex spacing ratios")
 
-    #evals, n_removed = remove_near_duplicates(evals)
-    #print("removed:", n_removed)
     evals = np.asarray(evals)
     pts = np.column_stack([evals.real, evals.imag])
     tree = cKDTree(pts)
-    distances, indices = tree.query(pts, k=3)  # k=1 is self, k=2 NN, k=3 NNN
+    _, indices = tree.query(pts, k=3, workers=-1)  # k=1 is self, k=2 NN, k=3 NNN
 
     r1 = evals[indices[:, 1]] - evals
     r2 = evals[indices[:, 2]] - evals
     r1 = clean_num_error(r1)
-    r2 = clean_num_error(r2)
 
     z = r1 / r2
     valid_mask = np.isfinite(z)
@@ -167,59 +123,7 @@ def complex_spacing_ratios(evals):
 
     return z
 
-def sector_stats (sector_evals, stats_func=complex_spacing_ratios):
-    """Compute complex spacing ratios (or different statistics) within each M sector and pool results.
 
-    Args:
-        sector_evals (dict): {M: eigenvalues} split into sectors defined by N superoperator eigenvalues
-        stats_func (callable): function that accepts evals and returns (z, r). Defaults to complex_spacing_ratios.
-
-    Returns:
-        np.ndarray: pooled complex spacing ratios z
-    """
-    all_z = []
-
-    for key, evals in sector_evals.items():
-
-        # skip tiny sectors
-        if len(evals) < 2:
-            continue
-
-
-        z, r = stats_func(evals)
-        all_z.append(z)
-
-        # --- flexible key handling ---
-        if isinstance(key, tuple):
-            # new format (M, k, p)
-            M = key[0]
-            k = key[1] if len(key) > 1 else None
-            p = key[2] if len(key) > 2 else None
-
-            print(f"len = {len(z)}, k={k}, p={p}")
-
-            msg = f"M={M:+d}"
-
-            if k is not None:
-                msg += f", k={k:.3f}"
-            if p is not None:
-                msg += f", p={p:.0f}"
-
-        else:
-            # old format
-            msg = f"M={key:+d}"
-
-        #print(f"{msg}: dim={len(evals)}, ⟨r⟩={np.abs(all_z).mean():.4f}")
-
-    if len(all_z) == 0:
-        print("No valid sectors found.")
-        return np.array([])
-
-    z_pooled = np.concatenate(all_z)
-
-    print(f"Pooled ⟨r⟩ = {np.abs(z_pooled).mean():.4f}")
-
-    return z_pooled
 
 ########################## SPACING STATISTICS ##########################
 

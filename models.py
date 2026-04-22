@@ -6,6 +6,34 @@ from scipy.sparse import lil_matrix, dok_matrix
 from collections import defaultdict
 
 from math_funcs import *
+from basis_models import *
+from math_funcs import _ALL
+
+
+
+def get_block_indices(basis, all_n, L, kappa=_ALL, M=_ALL):
+
+    dim = len(basis)
+    is_sym = isinstance(basis[0], SymState)
+
+    if is_sym:
+        masked_arr = np.array([
+            i + j * dim
+            for i, si in enumerate(basis)
+            for j, sj in enumerate(basis)
+            if (kappa is _ALL or (si.k - sj.k) % L == kappa)
+            and (M is _ALL or all_n[i] - all_n[j] == M)
+        ])
+
+    elif not is_sym:
+        masked_arr = np.array([
+            i + j * dim
+            for i, si in enumerate(basis)
+            for j, sj in enumerate(basis)
+            if (M is _ALL or all_n[i] - all_n[j] == M)
+        ])
+
+    return masked_arr
 
 ###################################### LINDBLADIAN BUILDING ######################################
 
@@ -26,24 +54,127 @@ class Lindbladian():
         self.n_local_max = n_local_max if n_local_max!=None else N
         self.is_symmetric = is_symmetric
         self.basis = basis
+        self.dim = L_op.shape[0]
 
+    def center_shift(self):
+        """Shifts Lindbladian such that its eigenvalues are now centered around 0 (zero trace)
 
-def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
-    """Builds Bose-Hubbard model Lindbladian, can be reduced to translation symmetry subspace"""
+        Returns:
+            Lindbladian: shifted Lindbladian
+        """
+        
+        shift = self.L_op.tr() / self.dim
+        data = self.L_op.full() - shift * np.eye(self.dim)
+        self.L_op = qt.Qobj(data, dims=self.L_op.dims, superrep=self.L_op.superrep)
+        return self
 
+def bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False,
+                            kappa_list=None, M_list=None):
+    """Build Lindbladian directly as a dict of blocks
+
+    Args:
+        L (int): number of sites
+        N (int): number of excitations
+        J (float): jump coefficient
+        U (float): energy coefficient
+        gamma (tuple of floats): dissipation rates
+        dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
+        c_ops_template (tuple of floats): per-site dissipation weights
+        n_local_max (int): local Hilbert space cutoff. Defaults to None
+        is_symmetric (bool): True if symmetric dissipation on all sites. Defaults to False
+        kappa (int or list or _Sentinel): ket-bra translation match filter. Defaults to _ALL (for all sectors)
+        M (int or list or _Sentinel): particle number filter. Defaults to _ALL (for all sectors)
+
+    Returns:
+        dict: label -> np.ndarray block matrix
+    """
+    
+    print(f"[*] building lindbladian blocks L={L}, N={N}, J={J}, U={U}, gamma={gamma}")
+
+    basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
+    if is_symmetric:
+        basis = build_sym_basis(basis)
+
+    dim = len(basis)
+    all_n = [s.n if isinstance(s, SymState) else sum(s) for s in basis]
+
+    a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)]
+    H, c_ops = build_H_and_cops(a_list, L, N, J, U, gamma, dissipation_type, c_ops_template, dim)
+    H_op     = H.full()
+    c_ops_np = [c.full() for c in c_ops]
+    del H, c_ops, a_list
+
+    ks = kappa_list or list(range(L)) if is_symmetric else [_ALL]
+    ms = M_list or list(range(-N, N + 1))
+
+    blocks = {}
+
+    for k, M in itertools.product(ks, ms):
+        indices = get_block_indices(basis, all_n, L, kappa=k, M=M)
+        if len(indices) == 0:
+            continue
+
+        label = (k, M) if is_symmetric else M
+        print(f"[*] block {label}: size {len(indices)}")
+        block = build_L_block_direct(H_op, c_ops_np, indices)
+        blocks[label] = block
+
+    return blocks
+
+def bose_hubbard_L_full(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
+    """Builds full Bose-Hubbard model Lindbladian utilizing QuTip's liouvillian function
+    
+    Args:
+        L (int): number of sites
+        N (int): number of excitations
+        J (float): jump coefficient
+        U (float): energy coefficient
+        gamma (tuple of floats): dissipation rates
+        dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
+        c_ops_template (tuple of floats): per-site dissipation weights
+        n_local_max (int): local Hilbert space cutoff. Defaults to None
+        is_symmetric (bool): True if symmetric dissipation on all sites. Defaults to False
+
+    Returns:
+        Lindbladian: Lindbladian
+    """
+    
     print(f"[*] building lindbladian for L={L}, N={N}, J={J}, U={U}, gamma={gamma}, symmetric={is_symmetric}")
 
     basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
-    dim = len(basis)
-
-    if not is_symmetric:
-        a_list = [build_a_i(i, basis) for i in range(L)]
-
-    else:
+    if is_symmetric:
         #rebuild basis list into translation and parity basis states
         basis = build_sym_basis(basis)
-        a_list = [build_a_i_sym(i, basis) for i in range(L)]      
 
+    dim = len(basis)
+    
+    a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)] 
+    H, c_ops = build_H_and_cops(a_list, L, N, J, U, gamma, dissipation_type, c_ops_template, dim)
+    
+    L_op = qt.liouvillian(H, c_ops)
+
+    lind = Lindbladian(L_op, L, N, J, U, gamma, dissipation_type, c_ops_template, basis, n_local_max, is_symmetric)
+
+    return lind
+
+def build_H_and_cops(a_list, L, N, J, U, gamma, dissipation, c_ops_template, dim):
+    """Builds Hamiltonian and dissipation operators
+
+    Args:
+        a_list (list of Qobjs): annihilation operators
+        L (int): number of sites
+        N (int): number of excitations
+        J (float): jump coefficient
+        U (float): energy coefficient
+        gamma (tuple of floats): dissipation rates
+        dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
+        c_ops_template (tuple of floats): per-site dissipation weights
+        dim (int): Hamiltonian dimenstion
+
+    Returns:
+        tuple of Qobjs: Hamiltonian and list of dissipation operators
+    """
+    
     H = qt.Qobj(np.zeros((dim, dim), dtype=complex))
 
     for i in range(L):
@@ -52,32 +183,56 @@ def bose_hubbard_lindbladian(L, N, J, U, gamma, dissipation_type, c_ops_template
 
     for i in range(L):
         n_i = a_list[i].dag() * a_list[i]
-        H += U/N * n_i * (n_i - 1)
+        H += U / N * n_i * (n_i - 1)
 
     c_ops = []
     for i in range(L):
-        if dissipation_type == 'DEPHASING':
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i].dag() * a_list[i])
-        elif dissipation_type == 'LOSS':
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i])
-        elif dissipation_type == 'PUMPLOSS':
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma[0]) * a_list[i])
-            c_ops.append(c_ops_template[i]*np.sqrt(gamma[1]) * a_list[i].dag())
+        if dissipation == 'DEPHASING':
+            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i].dag() * a_list[i])
+        elif dissipation == 'LOSS':
+            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i])
+        elif dissipation == 'PUMPLOSS':
+            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i])
+            c_ops.append(c_ops_template[i] * np.sqrt(gamma[1]) * a_list[i].dag())
 
-    L_op = qt.liouvillian(H, c_ops)
+    return H, c_ops
 
-    #clean numerical errors
-    tol = 1e-10
-    data = L_op.full().copy()
-    data.real[np.abs(data.real) < tol] = 0.0
-    data.imag[np.abs(data.imag) < tol] = 0.0
-    L_op = qt.Qobj(data, dims=L_op.dims, superrep=L_op.superrep)
+def build_L_block_direct(H_op, c_ops, block_indices):
+    """Builds a Liouvillian block directly only in the specified symmetry sector
 
-    lind = Lindbladian(L_op, L, N, J, U, gamma, dissipation_type, c_ops_template, basis, n_local_max, is_symmetric)
+    Args:
+        H_op (np.ndarray): Hamiltonian
+        c_ops (list): dissipation operators
+        block_indices (np.ndarray): Liouville indices in the block
 
-    return lind
+    Returns:
+        np.ndarray: block submatrix
+    """
 
+    dim = H_op.shape[0]
 
+    #ket(i) and bra(j) indices for each Liouville index
+    i_idx = block_indices % dim  
+    j_idx = block_indices // dim  
+
+    delta_j = (j_idx[:,None] == j_idx[None,:]) #delta_j[p,q] = 1 if bra indices match: j_p == j_q
+    delta_i = (i_idx[:,None] == i_idx[None,:]) #delta_i[p,q] = 1 if ket indices match: i_p == i_q
+
+    #first Lindbladian term (commutator)
+    # -i H rho: <i|-iH|k><l|j> = -i*H[i,k] * delta_{l,j}
+    # +i rho H: <i|k><l|+iH|j> = +i*delta_{i,k} * H[l,j]
+    block = -1j * (H_op[np.ix_(i_idx, i_idx)] * delta_j - H_op[np.ix_(j_idx, j_idx)].T * delta_i)
+
+    #second Lindbladian term (dissipation)
+    for c in c_ops:
+        cd = c.conj().T
+        cdc = cd @ c
+
+        block += c[np.ix_(i_idx, i_idx)] * c.conj()[np.ix_(j_idx, j_idx)]
+        block -= 0.5 * cdc[np.ix_(i_idx, i_idx)] * delta_j
+        block -= 0.5 * cdc[np.ix_(j_idx, j_idx)].T * delta_i
+
+    return block
 
 def build_a_i(site, basis):
     """Builds annihilation operator on site
@@ -114,7 +269,7 @@ def build_a_i_sym(site, sym_basis):
         sym_basis (list of SymStates): list of symmetric basis states
 
     Returns:
-        Qobj: annihilation operator
+        Qobj: annihilation operator in the symmetric basis
     """
 
     dim = len(sym_basis)
@@ -160,283 +315,30 @@ def build_a_i_sym(site, sym_basis):
     return qt.Qobj(data.tocsr())
 
 
-def liouvillian_blocks(lind) -> dict:
 
+def liouvillian_blocks(lind):
     L_op = lind.L_op
     L = lind.L
     sym_basis = lind.basis
-
     dim_H = len(sym_basis)
     all_n = [s.n for s in sym_basis]
 
     block_indices = defaultdict(list)
-
     for i, si in enumerate(sym_basis):
-
         for j, sj in enumerate(sym_basis):
-
             kappa = (si.k - sj.k) % L
-            pi    = (si.p * sj.p) if (si.p is not None and sj.p is not None) else None
-            M     = all_n[i] - all_n[j]
+            pi = True if (si.p == sj.p) else None
+            M = all_n[i] - all_n[j]
             block_indices[(kappa, pi, M)].append(i + j * dim_H)
 
     L_dense = L_op.full()
+    return {
+        label: (indices, L_dense[np.ix_(indices, indices)])
+        for label, indices in block_indices.items()
+    }
 
-    blocks = {label: (indices, L_dense[np.ix_(indices, indices)]) for label, indices in block_indices.items()}
 
-    return blocks
 
-
-
-###################################### BASIS BUILDING ######################################
-
-class SymState:
-    """instance of this class is an eigenstate of T, P operators
-    """
-
-    def __init__(self, states, coeffs, k, p=None):
-        self.states = states
-        self.coeffs = coeffs
-        self.k = k
-        self.p = p
-        self.n = sum(states[0])
-
-    def __str__(self):
-        def fmt(c):
-            if np.iscomplex(c):
-                return f"{c.real:.2f}{c.imag:+.2f}j"
-            return f"{float(c):.2f}"
-
-        terms = " + ".join(
-            f"{fmt(self.coeffs[i])} {self.states[i]}"
-            for i in range(len(self.states))
-        )
-        return f"N={self.n} k={self.k} p={self.p} state = {terms}"
-    
-    __repr__ = __str__
-    
-
-def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
-    """Builds Bose basis in Fock space
-
-    Args:
-        L (int): number of sites
-        N (int): total number of excitaions
-        fixed_N (bool, optional): TRUE if all basis states have conserved # of excitations. Defaults to True.
-        n_local_max (int): site cutoff. Default to None.
-
-    Returns:
-        list: basis states (int tuples)
-    """
-
-    if n_local_max is None:
-        n_local_max = N 
-
-    all_configs = itertools.product(range(n_local_max+1), repeat=L)
-
-    if fixed_N:
-        basis = [cfg for cfg in all_configs if sum(cfg) == N]
-
-    else:
-        basis = [cfg for cfg in all_configs if sum(cfg) <= N]
-
-    return basis
-
-
-def build_ket_orbits(basis_list):
-    """Find all translation orbits of single Fock states.
- 
-    Args:
-        basis_list (list of tuples): Fock basis states
- 
-    Returns:
-        ket_orbits  (list of lists): each entry is the orbit [s, T(s), T²(s), ...] ordered from the seed (= lexicographically smallest element).
-        ket_orbit_of (dict): state -> (orbit_index, position_within_orbit)
-    """
-    
-    ket_orbits = []
- 
-    visited = set()
-    for s in basis_list:
-
-        if s in visited:
-            continue
-
-        orb = []
-        cur = s
-        while True:
-            orb.append(cur)
-            visited.add(cur)
-            cur = translate(cur)
-            if cur == s:
-                break
-
-        ket_orbits.append(orb)
- 
-    return ket_orbits
-
-
-def build_sym_basis(basis_list):
-    """Builds Fock basis from T, P operators eigenstates
-
-    Args:
-        basis_list (list of int tuples): oringinal Fock basis
-
-    Returns:
-        list of SymStates: new basis
-    """
-
-    L = len(basis_list[0]) #number of sites
-    ket_orbits = build_ket_orbits(basis_list)
-
-    sym_basis = []
-    processed = set()
-    for orb in ket_orbits:
-
-        k_step = L // len(orb) if L % len(orb) == 0 else 1
-
-        for k in range(0, L, k_step):
-
-            s = []
-            s_coeffs = []
-
-            for l in range(len(orb)):
-                #build state from orbits
-
-                s.append(orb[l])
-                s_coeffs.append( clean_num_error(np.exp(1j * 2 * np.pi * k/L * l)) )
-
-            if k==0 or k==L/2:
-                #handle parity
-
-                inverted_s = [invert(vec) for vec in s]
-                is_conj = set(map(tuple, inverted_s)) == set(map(tuple, s))
-
-                if frozenset(map(tuple, s)) in processed:
-                    #this state has already been processed
-                    continue
-
-                if is_conj:
-                    #inverted state stays the same
-
-                    s_coeffs = [1/np.sqrt(len(s_coeffs)) * c for c in s_coeffs]
-
-                    if k == 0:
-                        par = 1
-                    else:
-                        # k == L//2
-                        p_state = invert(s[0])
-                        p_pos = next(t for t, st in enumerate(s) if st == p_state)
-                        phase = np.exp(2j * np.pi * k * p_pos / L)
-                        par = int(np.round(phase.real))
-
-                    sym_state = SymState(s, s_coeffs, k, p=par)
-                    sym_basis.append(sym_state)
-
-                else:
-                    #inverted state is a different translation eigenstate
-                    #build proper parity eigenstate
-
-                    processed.add(frozenset(map(tuple, inverted_s)))
- 
-                    for s_p in (1,-1):
-                        s_coeffs_new = s_coeffs + [s_p * c for c in s_coeffs]
-                        s_coeffs_new = [1/np.sqrt(len(s_coeffs_new)) * c for c in s_coeffs_new]
-                        sym_state = SymState(s + inverted_s, s_coeffs_new, k, p=s_p)
-                        sym_basis.append(sym_state)
-
-            else:    
-                s_coeffs = [1/np.sqrt(len(s_coeffs)) * c for c in s_coeffs]  
-                sym_state = SymState(s, s_coeffs, k, p=None)
-                sym_basis.append(sym_state)
-
-    """
-    for s in sym_basis:
-        print(s)
-    """
-
-    return sym_basis
-
-
-###################################### SYMMETRY OPERATORS ######################################
-
-def translate(state):
-    """Translates a state
-
-    Args:
-        state (int tuple or list): input state
-
-    Returns:
-        tuple: translated state (int tuple)
-    """
-
-    state = tuple(state)
-    return tuple(state[-1:] + state[:-1])
-
-def translation_operator(basis):
-    """Builds a translation operator
-
-    Args:
-        basis (list of int tuples): basis states
-
-    Returns:
-        Qobj: translation operator
-    """
-
-    dim = len(basis)
-    T = lil_matrix((dim, dim), dtype=complex)
-
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    # for indexes i, states s
-    for i, s in enumerate(basis):
-        j = state_index[translate(s)] # translate original state and find corresponding new index
-        T[j, i] = 1.0 # <j|T|i> = 1 <=> T|i> = |j>
-
-    return qt.Qobj(T)
-
-def invert(state):
-    """Reflects a state"""
-    state = tuple(state)
-    return tuple(state[::-1])
-
-def parity_operator(basis):
-    """Builds parity operator P: site i -> L-1-i."""
-
-    dim = len(basis)
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    P = lil_matrix((dim, dim), dtype=complex)
-    for i, s in enumerate(basis):
-        j = state_index[invert(s)]
-        P[j, i] = 1.0
-
-    return qt.Qobj(P)
-
-def N_super(basis):
-    """Builds super-particle number operator N = n⊗I - I⊗n^T in Liouville space.
-
-    Eigenvalue of N on |Na><Nb| is Na - Nb.
-
-    Args:
-        basis (list): basis states
-
-    Returns:
-        Qobj: super-particle number superoperator
-    """
-    n_per_state = np.array([sum(s) for s in basis])
-    dim = len(basis)
-
-    # number operator as diagonal matrix
-    n_op = qt.Qobj(np.diag(n_per_state.astype(complex)))
-
-    # N = n⊗I - I⊗n^T
-    I = qt.qeye(dim)
-    N_super = qt.sprepost(n_op, I) - qt.sprepost(I, n_op.trans())
-
-    return N_super
 
 
 ###################################### HAMILTONIAN ONLY ######################################

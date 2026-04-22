@@ -2,6 +2,15 @@ import numpy as np
 
 from collections.abc import Iterable
 from math import gcd
+import math
+
+
+class _Sentinel:
+    """Sentinel value meaning 'no filter applied'."""
+    def __repr__(self): return "ALL"
+
+_ALL = _Sentinel()
+ALL = _Sentinel()
 
 
 def fmt_ket(s):
