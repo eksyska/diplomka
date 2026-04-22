@@ -2,7 +2,21 @@ import numpy as np
 import pandas as pd
 import os
 from models import *
+from basis_models import *
 
+
+def print_L_basis(basis):
+    """Prints Liouville space basis states (ket-bra)
+
+    Args:
+        basis (list of floats or SymStates): Hilbert space basis
+    """
+
+    for alpha in range(len(basis)**2):
+        i = alpha % len(basis)
+        j = alpha // len(basis)
+        print(f"  alpha={alpha}: |{basis[i]}><{basis[j]}|")
+        
 
 def export_matrix(matrix, filename="matrix_output"):
     """Exports matrix to a .txt file
