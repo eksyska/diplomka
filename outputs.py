@@ -5,19 +5,6 @@ from models import *
 from basis_models import *
 
 
-def print_L_basis(basis):
-    """Prints Liouville space basis states (ket-bra)
-
-    Args:
-        basis (list of floats or SymStates): Hilbert space basis
-    """
-
-    for alpha in range(len(basis)**2):
-        i = alpha % len(basis)
-        j = alpha // len(basis)
-        print(f"  alpha={alpha}: |{basis[i]}><{basis[j]}|")
-        
-
 def export_matrix(matrix, filename="matrix_output"):
     """Exports matrix to a .txt file
 
@@ -30,7 +17,7 @@ def export_matrix(matrix, filename="matrix_output"):
 
         for row in matrix:
 
-            formatted_row = " ".join(f"{val:.2f}" for val in row)
+            formatted_row = " ".join(f"{val.real:.1f}{val.imag:+.1f}j" for val in row)
             f.write(formatted_row + "\n")
 
     print(f"Matrix saved to {path}")

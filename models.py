@@ -121,6 +121,18 @@ def bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation_type, c_ops_template, n
 
     return blocks
 
+def print_L_basis(basis):
+    """Prints Liouville space basis states (ket-bra)
+
+    Args:
+        basis (list of floats or SymStates): Hilbert space basis
+    """
+
+    for alpha in range(len(basis)**2):
+        i = alpha % len(basis)
+        j = alpha // len(basis)
+        print(f"  alpha={alpha}: |{basis[i]}><{basis[j]}|")
+
 def bose_hubbard_L_full(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
     """Builds full Bose-Hubbard model Lindbladian utilizing QuTip's liouvillian function
     

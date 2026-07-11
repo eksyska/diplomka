@@ -6,6 +6,8 @@ from scipy.sparse import lil_matrix
 
 from math_funcs import *
 
+from math_funcs import _ALL
+
 
 ###################################### BASIS BUILDING ######################################
 
@@ -60,6 +62,8 @@ def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
         basis = [cfg for cfg in all_configs if sum(cfg) <= N]
 
     return basis
+
+
 
 
 def build_ket_orbits(basis_list):
@@ -169,10 +173,10 @@ def build_sym_basis(basis_list):
                 sym_state = SymState(s, s_coeffs, k, p=None)
                 sym_basis.append(sym_state)
 
-    
+    """
     for s in sym_basis:
         print(s)
-    
+    """
 
     return sym_basis
 
