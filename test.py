@@ -6,18 +6,19 @@ from plot import *
 from basis_models import *
 from models import *
 from outputs import *
+from math_funcs import _ALL
 
 #print full arrays
 #np.set_printoptions(threshold=np.inf)
 np.set_printoptions(linewidth=150)
 
 L = 3
-N = 10
-n_local_max = N
-J = -0.1
+N = 2
+n_local_max = 3
+J = -0.2
 U = 1.0
-gamma1 = 0.15
-gamma2 = 0.1
+gamma1 = 0.1
+gamma2 = 0.05
 
 """
 kappa = 0.2
@@ -35,9 +36,10 @@ else:
     gamma = (gamma1,)
 
 c_ops_template1 = (1,0.7,1.3,1.5)
+c_ops_template2 = (1,0,0,0,0)
 c_ops_template_sym = (1,1,1,1,1,1)
 
-M=0
+M=0 # used for filename only now
 filename = f"L{L}_N{N}_J{J}_U{U}_gamma{gamma}_{dissipation}_M={M}"
 subfolder = "dephasing"
 
@@ -51,98 +53,23 @@ if test_lindbladian:
 
     if symmetric_dissipation:
         
-        
-
+        n_pairs = [(N,N)]
         
         blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True,
-                                        kappa_list=[0], M_list=[1,-1])
-        
+                                        kappa_list=[0], M_list=[1])
+        """blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True,
+                                        k_L_list=[0], k_R_list=[0], p_L_list=[1], p_R_list=[1], M_list=[0])"""
+
+        for key, val in find_blocks(blocks).items():
+            print(f"{key}, {val["n_blocks"]}")
+
         block_evals = evals_from_blocks(blocks)
+        pooled = pool_evals(block_evals)
+        #plot_spectrum(pooled)
 
         all_z = csr_from_evals(block_evals, complex_spacing_ratios)
-        plot_complex_ratios(all_z, show=True) 
-
-        #some testing code
-        """
-        basis_fock= build_bose_basis(L ,N, fixed_N=False, n_local_max=n_local_max)
-        basis_sym = build_sym_basis(basis_fock)
-        all_n = [s.n for s in basis_sym]
-        blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True)
-        block_evals = evals_from_blocks(blocks)
-        l1 = bose_hubbard_L_full(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True).L_op
-        l2 = bose_hubbard_L_full(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=False).L_op
-
-        evals1 = np.sort_complex(clean_num_error(l1.eigenenergies()))
-        evals2 = np.sort_complex(clean_num_error(l2.eigenenergies()))
-        block_evals_pooled = np.sort_complex(clean_num_error(pool_evals(block_evals)))
-
-        print(evals1)
-        print(len(evals2))
-        print(len(block_evals_pooled))
-        for label, value in block_evals.items():
-            print(f"{label}: {value}")
-
-        print(compare_complex(evals1,evals2))
-        print(compare_complex(evals1,block_evals_pooled))
-        print(compare_complex(block_evals_pooled,evals2))
-        """
-        
-        """
-        lind = bose_hubbard_L_full(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True)
-        L_op = lind.L_op
-        evals = clean_num_error(L_op.eigenenergies())
-        evals = np.sort_complex(evals)
-
-        print(evals)
-        print(block_evals_pooled)
-        print(len(evals), len(block_evals_pooled))
-
-        print(f"allclose: {np.allclose(evals, block_evals_pooled)}")"""
-
-        """
-        idx = get_block_indices(basis_sym, all_n, k_L=0, k_R=0, p_L=1, p_R=1, M=0)
-        idx = np.concatenate([idx, [10,15]])
-        print("indices:", idx)
-        for alpha in idx:
-            i = alpha % len(basis_sym)
-            j = alpha // len(basis_sym)
-            print(f"  alpha={alpha}: |{basis_sym[i]}><{basis_sym[j]}|")
-
-        print("block:\n", blocks[(0,0,1,1,0)])
-
-        
-        # find the 2x2 block label
-        label = (0, 0, 1, 1, 0)
-
-        # block from direct construction
-        block_direct = blocks[label]
-        print("direct:\n", block_direct)
-
-        dim = len(basis_sym)
-        a_list = [build_a_i_sym(i, basis_sym) for i in range(L)]
-        H, c_ops = build_H_and_cops(a_list, L, N, J, U, gamma, dissipation, c_ops_template_sym, len(basis_sym))
-        H_op = H.full()
-        c_ops_np = [c.full() for c in c_ops]
-
-        # use the QuTiP Liouvillian, not the directly built one
-        L_qutip = qt.liouvillian(H, c_ops).full()
-        idx = get_block_indices(basis_sym, all_n, k_L=0, k_R=0, p_L=1, p_R=1, M=0)
-
-        block_qutip = L_qutip[np.ix_(idx, idx)]
-        print("qutip block:\n", block_qutip)
-        print("qutip block evals:", np.linalg.eigvals(block_qutip))"""
-        """
-        # block from slicing the full matrix
-        all_indices = np.arange(len(basis_sym)**2)
-        L_full = build_L_block_direct(H_op, c_ops_np, all_indices)
-        idx = get_block_indices(basis_sym, all_n, k_L=0, k_R=0, p_L=1, p_R=1, M=0)
-        block_sliced = L_full[np.ix_(idx, idx)]
-        print("sliced:\n", block_sliced)
-
-        print(qt.Qobj(block_direct).eigenenergies())
-        print("match:", np.allclose(block_direct, block_sliced))
-
-        print(len(pool_evals(block_evals)), len(evals))"""
+        #plot_complex_ratios(all_z, show=True) 
+       
 
 
         #all_z = csr_from_evals(block_evals, complex_spacing_ratios)
@@ -151,7 +78,13 @@ if test_lindbladian:
 
     if not symmetric_dissipation:
 
-        print("test")
+        blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template2, n_local_max=n_local_max, is_symmetric=False,
+                                        M_list=[-1,1])
+        
+        block_evals = evals_from_blocks(blocks)
+
+        all_z = csr_from_evals(block_evals, complex_spacing_ratios)
+        plot_complex_ratios(all_z, show=True)
         
 
 if test_hamiltonian:
