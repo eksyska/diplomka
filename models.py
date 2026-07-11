@@ -10,8 +10,27 @@ from basis_models import *
 from math_funcs import _ALL
 
 
+def _get_pi(si, sj, kappa):
 
-def get_block_indices(basis, all_n, L, kappa=_ALL, M=_ALL):
+    if kappa == 0:
+
+        if si.k == 0 and sj.k == 0:
+            pi = 1 if si.p*sj.p == 1 else -1
+
+        else:
+            pi = None
+
+    if kappa != 0:
+
+        pi = None
+  
+    return pi
+
+def get_block_indices(basis, all_n, L, kappa=_ALL, pi=_ALL, M=_ALL, N_ket=_ALL, N_bra=_ALL):
+    """N_ket and N_bra are for strong symmetry (DEPHASING).
+    M is for weak symmetry (LOSS/PUMPLOSS).
+    Only one of (M) or (N_ket, N_bra) should be set at a time.
+    """
 
     dim = len(basis)
     is_sym = isinstance(basis[0], SymState)
@@ -23,6 +42,9 @@ def get_block_indices(basis, all_n, L, kappa=_ALL, M=_ALL):
             for j, sj in enumerate(basis)
             if (kappa is _ALL or (si.k - sj.k) % L == kappa)
             and (M is _ALL or all_n[i] - all_n[j] == M)
+            and (N_ket is _ALL or all_n[i] == N_ket)
+            and (N_bra is _ALL or all_n[j] == N_bra)
+            and (pi is _ALL or pi == _get_pi(si, sj, kappa))
         ])
 
     elif not is_sym:
@@ -31,6 +53,8 @@ def get_block_indices(basis, all_n, L, kappa=_ALL, M=_ALL):
             for i, si in enumerate(basis)
             for j, sj in enumerate(basis)
             if (M is _ALL or all_n[i] - all_n[j] == M)
+            and (N_ket is _ALL or all_n[i] == N_ket)
+            and (N_bra is _ALL or all_n[j] == N_bra)
         ])
 
     return masked_arr
@@ -69,7 +93,7 @@ class Lindbladian():
         return self
 
 def bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False,
-                            kappa_list=None, M_list=None):
+                            kappa_list=None, pi_list=None, M_list=None, N_pairs=None):
     """Build Lindbladian directly as a dict of blocks
 
     Args:
@@ -83,7 +107,8 @@ def bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation_type, c_ops_template, n
         n_local_max (int): local Hilbert space cutoff. Defaults to None
         is_symmetric (bool): True if symmetric dissipation on all sites. Defaults to False
         kappa (int or list or _Sentinel): ket-bra translation match filter. Defaults to _ALL (for all sectors)
-        M (int or list or _Sentinel): particle number filter. Defaults to _ALL (for all sectors)
+        M (int or list or _Sentinel): particle number filter. Used for weak symmetry N. Defaults to _ALL (for all sectors)
+        N_pairs (int or list or _Sentinel): particle number filter. Used for strong symmetry N. Defaults to _ALL (for all sectors)
 
     Returns:
         dict: label -> np.ndarray block matrix
@@ -91,33 +116,74 @@ def bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation_type, c_ops_template, n
     
     print(f"[*] building lindbladian blocks L={L}, N={N}, J={J}, U={U}, gamma={gamma}")
 
-    basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
+    n_max = n_local_max if n_local_max is not None else N
+    strong_symmetry = (dissipation_type == 'DEPHASING')
+
+    basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_max)
     if is_symmetric:
         basis = build_sym_basis(basis)
 
     dim = len(basis)
     all_n = [s.n if isinstance(s, SymState) else sum(s) for s in basis]
+    n_values = sorted(set(all_n))
+
+    """
+    basis_f = basis_filtered(basis, all_n, L, kappa=kappa_list[0], pi=pi_list[0], M=M_list[0])
+    print_basis_filtered(basis_f)
+    """
 
     a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)]
     H, c_ops = build_H_and_cops(a_list, L, N, J, U, gamma, dissipation_type, c_ops_template, dim)
     H_op     = H.full()
     c_ops_np = [c.full() for c in c_ops]
-    del H, c_ops, a_list
 
-    ks = kappa_list or list(range(L)) if is_symmetric else [_ALL]
-    ms = M_list or list(range(-N, N + 1))
+    ks   = kappa_list or (list(range(L)) if is_symmetric else [_ALL])
+    pis  = pi_list or ([+1, -1, None] if is_symmetric else [_ALL])
+
+    if not strong_symmetry:
+        ms = M_list or list(range(-N, N + 1))
+
+    # not splitting into sectors - just for testing purposes
+    """
+    pis = [_ALL]
+    ks = [_ALL]
+    ms = [_ALL]
+    """
 
     blocks = {}
 
-    for k, M in itertools.product(ks, ms):
-        indices = get_block_indices(basis, all_n, L, kappa=k, M=M)
-        if len(indices) == 0:
-            continue
+    if strong_symmetry:
+        for k, p, (N_k, N_b) in itertools.product(ks, pis, N_pairs):
+            indices = get_block_indices(basis, all_n, L, kappa=k, pi=p, N_ket=N_k, N_bra=N_b)
+            if len(indices) == 0:
+                continue
 
-        label = (k, M) if is_symmetric else M
-        print(f"[*] block {label}: size {len(indices)}")
-        block = build_L_block_direct(H_op, c_ops_np, indices)
-        blocks[label] = block
+            label = (k, p, N_k, N_b) if is_symmetric else (N_k, N_b)
+            print(f"[*] block {label}: size {len(indices)}")
+            block = build_L_block_direct(H_op, c_ops_np, indices)
+            blocks[label] = block
+
+    else:
+        for k, p, M in itertools.product(ks, pis, ms):
+            indices = get_block_indices(basis, all_n, L, kappa=k, pi=p, M=M)
+            if len(indices) == 0:
+                continue
+
+            label = (k, p, M) if is_symmetric else M
+            print(f"[*] block {label}: size {len(indices)}")
+            block = build_L_block_direct(H_op, c_ops_np, indices)
+            blocks[label] = block
+
+
+    # output for tetsing purposes
+    """
+    for i, b in blocks.items():
+        b_cleaned = clean_num_error(b)
+        print(np.array2string(
+            b_cleaned.round(2),
+            formatter={'complex_kind': fmt}
+        ))
+    """
 
     return blocks
 
@@ -348,10 +414,6 @@ def liouvillian_blocks(lind):
         label: (indices, L_dense[np.ix_(indices, indices)])
         for label, indices in block_indices.items()
     }
-
-
-
-
 
 ###################################### HAMILTONIAN ONLY ######################################
 
