@@ -5,7 +5,6 @@ import itertools
 
 from math_funcs import *
 
-from math_funcs import _ALL
 
 
 ###################################### STATE CLASSES ######################################
@@ -319,67 +318,9 @@ def translate(state):
     state = tuple(state)
     return tuple(state[-1:] + state[:-1])
 
-def translation_operator(basis):
-    """Builds a translation operator
-
-    Args:
-        basis (list of int tuples): basis states
-
-    Returns:
-        Qobj: translation operator
-    """
-
-    dim = len(basis)
-    T = lil_matrix((dim, dim), dtype=complex)
-
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    # for indexes i, states s
-    for i, s in enumerate(basis):
-        j = state_index[translate(s)] # translate original state and find corresponding new index
-        T[j, i] = 1.0 # <j|T|i> = 1 <=> T|i> = |j>
-
-    return qt.Qobj(T)
 
 def invert(state):
     """Reflects a state"""
     state = tuple(state)
     return tuple(state[::-1])
 
-def parity_operator(basis):
-    """Builds parity operator P: site i -> L-1-i."""
-
-    dim = len(basis)
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    P = lil_matrix((dim, dim), dtype=complex)
-    for i, s in enumerate(basis):
-        j = state_index[invert(s)]
-        P[j, i] = 1.0
-
-    return qt.Qobj(P)
-
-def N_super(basis):
-    """Builds super-particle number operator N = n⊗I - I⊗n^T in Liouville space.
-
-    Eigenvalue of N on |Na><Nb| is Na - Nb.
-
-    Args:
-        basis (list): basis states
-
-    Returns:
-        Qobj: super-particle number superoperator
-    """
-    n_per_state = np.array([sum(s) for s in basis])
-    dim = len(basis)
-
-    # number operator as diagonal matrix
-    n_op = qt.Qobj(np.diag(n_per_state.astype(complex)))
-
-    # N = n⊗I - I⊗n^T
-    I = qt.qeye(dim)
-    N_super = qt.sprepost(n_op, I) - qt.sprepost(I, n_op.trans())
-
-    return N_super

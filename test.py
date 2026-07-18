@@ -5,6 +5,7 @@ from qm_statistics import *
 from plot import *
 from basis_models import *
 from models import *
+from models_old import *
 from outputs import *
 
 #print full arrays
