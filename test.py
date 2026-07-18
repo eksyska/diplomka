@@ -13,8 +13,8 @@ from math_funcs import _ALL
 np.set_printoptions(linewidth=150)
 
 L = 3
-N = 2
-n_local_max = 3
+N = 7
+n_local_max = 5
 J = -0.2
 U = 1.0
 gamma1 = 0.1
@@ -52,13 +52,39 @@ time_start = time.time()
 if test_lindbladian:
 
     if symmetric_dissipation:
-        
-        n_pairs = [(N,N)]
-        
+
+        bh = BoseHubbard(L, N, J, U, dissipation, gamma, n_local_max=n_local_max, M_list=[1], kappa_list=[0], pi_list=[1])
+
+        fock_basis = build_bose_basis(bh.L, bh.N, fixed_N=False)
+        t_basis = build_translation_basis(fock_basis)
+        L_basis = build_sym_L_basis(fock_basis)
+        print(f"Hilbert basis len: {len(fock_basis)}")
+        print(f"translation basis len: {len(t_basis)}")
+        print(f"Liouville basis len: {len(L_basis)}")
+
+        blocks = bh.build_L_blocks(fock_basis, L_basis)
+
+        """
+        L_full = bose_hubbard_L_full(L, N, J, U, gamma, "PUMPLOSS", c_ops_template_sym, is_symmetric=False)
+        evals_full = L_full.L_op.eigenenergies()
+        """
+
+        block_evals = evals_from_blocks(blocks)
+        pooled = pool_evals(block_evals)
+
+        all_z = csr_from_evals(block_evals, complex_spacing_ratios)
+        plot_complex_ratios(all_z, show=True) 
+
+        #print("arrays equal:", compare_complex(clean_num_error(pooled), clean_num_error(evals_full)))
+
+        """        
         blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True,
                                         kappa_list=[0], M_list=[1])
-        """blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True,
-                                        k_L_list=[0], k_R_list=[0], p_L_list=[1], p_R_list=[1], M_list=[0])"""
+        blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=True,
+                                        k_L_list=[0], k_R_list=[0], p_L_list=[1], p_R_list=[1], M_list=[0])
+
+        L_full = bose_hubbard_L_full(L, N, J, U, gamma, dissipation, c_ops_template_sym, is_symmetric=False)
+        evals_full = L_full.L_op.eigenenergies()
 
         for key, val in find_blocks(blocks).items():
             print(f"{key}, {val["n_blocks"]}")
@@ -71,21 +97,9 @@ if test_lindbladian:
         #plot_complex_ratios(all_z, show=True) 
        
 
-
         #all_z = csr_from_evals(block_evals, complex_spacing_ratios)
         
-        #plot_complex_ratios(all_z, show=True) 
-
-    if not symmetric_dissipation:
-
-        blocks = bose_hubbard_L_blocks(L, N, J, U, gamma, dissipation, c_ops_template2, n_local_max=n_local_max, is_symmetric=False,
-                                        M_list=[-1,1])
-        
-        block_evals = evals_from_blocks(blocks)
-
-        all_z = csr_from_evals(block_evals, complex_spacing_ratios)
-        plot_complex_ratios(all_z, show=True)
-        
+        #plot_complex_ratios(all_z, show=True) """        
 
 if test_hamiltonian:
 
