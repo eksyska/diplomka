@@ -57,9 +57,8 @@ class BoseHubbard:
             H += -J * (a_i.conjugate().transpose() @ a_j + a_j.conjugate().transpose() @ a_i)
             
         # on-site interaction U / N * n*(n-1))
-        for idx, state in enumerate(fock_basis):
-            diag = U / N * sum(n * (n - 1) for n in state)
-            H[idx, idx] += diag
+        diag_vals = [U / N * sum(n * (n - 1) for n in state) for state in fock_basis]
+        H = H + sp.diags(diag_vals, dtype=complex, format='csr')
             
         return H
     
@@ -95,89 +94,75 @@ class BoseHubbard:
             jump_ops_fock (np.2darray): jump operators in Fock basis
         """
 
-        M_list = self.M_list
-        kappa_list = self.kappa_list
-        pi_list = self.pi_list
+        M_list = self.M_list if self.M_list else np.arange(-self.N, self.N+1, 1)
+        kappa_list = self.kappa_list if self.kappa_list else np.arange(0, self.L+1, 1)
+        pi_list = self.pi_list if self.pi_list else None
+        M_set, kappa_set = set(M_list), set(kappa_list)
+        pi_set = set(pi_list) if pi_list is not None else None
 
-        if not M_list:
-            M_list = np.arange(-self.N, self.N+1, 1)
-        if not kappa_list:
-            kappa_list = np.arange(0, self.L+1, 1)
-        if not pi_list:
-            pi_list = None
-
-        # arrange the states into blocks labeled (M, kappa, pi)
         sectors = {}
+
+        # select wanted sectors
         for ss_L in sym_basis_L:
 
-            if ss_L.M not in M_list:
+            if ss_L.M not in M_set or ss_L.kappa not in kappa_set:
                 continue
-            if ss_L.kappa not in kappa_list:
+            if pi_set is not None and ss_L.pi not in pi_set:
                 continue
-            if pi_list is not None and ss_L.pi not in pi_list:
-                continue
-            
-            sector_key = (ss_L.M, ss_L.kappa, ss_L.pi)
-            if sector_key not in sectors:
-                sectors[sector_key] = []
-            sectors[sector_key].append(ss_L)
-            
+            sectors.setdefault((ss_L.M, ss_L.kappa, ss_L.pi), []).append(ss_L)
+
+        dim = len(fock_basis)
+        fock_to_idx = {state: i for i, state in enumerate(fock_basis)}
 
         H_fock = self.build_H(fock_basis)
         jump_ops_fock = self.build_jump_ops(fock_basis)
+        L_full = build_full_liouvillian(H_fock, jump_ops_fock) # built once
 
-        # operators sparse -> dense
-        H = H_fock.toarray()
-        jump_ops = [L_j.toarray() for L_j in jump_ops_fock]
-        
         blocks = {}
-        
-        # build individual blocks
+
+        # build selected blocks
         for sector_key, sector_states in sectors.items():
-            
+
             M, kappa, pi = sector_key
             size = len(sector_states)
-            
             print(f"Building sector [M={M}, kappa={kappa}, pi={pi}], #states: {size}")
-            
-            # compute density matrices for this block
-            rhos = [ss_to_density_matrix(ss_L, fock_basis) for ss_L in sector_states]
-            
-            block = np.zeros((size, size), dtype=complex)
-            
-            # compute matrix elements block[b, a] = <<rho_b|L|rho_a>>
-            for b in range(size):
 
-                rho_b = rhos[b]
-                
-                for a in range(size):
+            RHO = sp.hstack([ss.to_sparse(fock_to_idx, dim) for ss in sector_states], format='csc')
+            LRHO = L_full @ RHO
+            blocks[sector_key] = (RHO.conjugate().transpose() @ LRHO).toarray()
 
-                    rho_a = rhos[a]
-                    
-                    # L(rho_a)
-
-                    # -i [H, \rho]
-                    L_rho_a = -1j * (H @ rho_a - rho_a @ H)
-                    
-                    # dissipation: sum_j ( L_j \rho L_j^\dagger - 0.5 {L_j^\dagger L_j, \rho} )
-                    for L_j in jump_ops:
-
-                        L_j_dag = L_j.conjugate().transpose()
-                        
-                        jump_term = L_j @ rho_a @ L_j_dag
-                        anti_term = -0.5 * (L_j_dag @ L_j @ rho_a + rho_a @ L_j_dag @ L_j)
-                        
-                        L_rho_a += (jump_term + anti_term)
-                        
-                    # Tr( \rho_b^\dagger * L_rho_a )
-                    block[b, a] = np.sum(np.conj(rho_b) * L_rho_a)
-                    
-            blocks[sector_key] = block
-            
         return blocks
 
 
 ###################################### LINDBLADIAN BUILDING ######################################    
+
+
+def build_full_liouvillian(H, jump_ops):
+    """Builds sparse dim^2 Liouvillian superoperator (column-major density matrix convention).
+
+    Args:
+        H (np.2darray): Hamiltonian matrix
+        jump_ops (list of np.2darrays): jump operators matrices
+
+    Returns:
+        scipy.sparse.csr_matrix: Liouvillian matrix
+    """
+
+    dim = H.shape[0]
+    I = sp.eye(dim, dtype=complex, format='csr')
+    Hc = H.tocsr()
+
+    L = -1j * (sp.kron(I, Hc, format='csr') - sp.kron(Hc.transpose(), I, format='csr'))
+
+    for L_j in jump_ops:
+
+        L_j = L_j.tocsr()
+        L_j_dag = L_j.conjugate().transpose()
+        L_j_dag_L_j = (L_j_dag @ L_j).tocsr()
+        L += sp.kron(L_j.conjugate(), L_j, format='csr')
+        L -= 0.5 * (sp.kron(I, L_j_dag_L_j, format='csr') + sp.kron(L_j_dag_L_j.transpose(), I, format='csr'))
+
+    return L.tocsr()
 
 
 def get_a_i(site, fock_basis):
