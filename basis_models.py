@@ -258,14 +258,15 @@ def build_sym_L_basis(fock_basis):
             kappa = (ket.k - bra.k) % L
             s_l = StateL(ket, bra)
 
-            if kappa != 0:
+            if kappa != 0 or (kappa != L // 2 and L % 2 == 0): # kappa != 0 and kappa != L/2 (if L even)
+
                 sym_statesL.append(SymStateL((s_l,), (1,), kappa, pi=None))
                 seen.add(pair_key)
                 continue
 
-            # kappa == 0
+            # kappa == 0 or kappa == L/2 (if L even)
 
-            # find inverted states among translation symmetric states
+            # find inverted state among translation symmetric states
             ket_partner, ket_phase = parity_partner(ket)
             bra_partner, bra_phase = parity_partner(bra)
             inv_key = (_key(ket_partner), _key(bra_partner))
