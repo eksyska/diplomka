@@ -258,7 +258,7 @@ def build_sym_L_basis(fock_basis):
             kappa = (ket.k - bra.k) % L
             s_l = StateL(ket, bra)
 
-            if kappa != 0 or (kappa != L // 2 and L % 2 == 0): # kappa != 0 and kappa != L/2 (if L even)
+            if kappa != 0 and (kappa != L // 2 and L % 2 == 0): # kappa != 0 and kappa != L/2 (if L even)
 
                 sym_statesL.append(SymStateL((s_l,), (1,), kappa, pi=None))
                 seen.add(pair_key)
