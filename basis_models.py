@@ -96,7 +96,7 @@ class SymStateL:
                 for f_b, c_b in zip(bra.fock_states, bra.coeffs):
 
                     j = fock_to_idx[f_b]
-                    rows.append(i + j * dim)
+                    rows.append(i * dim + j)  # row-major flat index
                     data.append(ket_val * np.conj(c_b))
 
         v = sp.coo_matrix((data, (rows, [0]*len(rows))), shape=(dim*dim, 1), dtype=complex).tocsc()

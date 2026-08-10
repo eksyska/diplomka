@@ -148,15 +148,21 @@ def build_full_liouvillian(H, jump_ops):
     I = sp.eye(dim, dtype=complex, format='csr')
     Hc = H.tocsr()
 
-    L = -1j * (sp.kron(I, Hc, format='csr') - sp.kron(Hc.transpose(), I, format='csr'))
+    # row-major: vec_r(AXB) = (A ⊗ B^T) vec_r(X)
+    # -i(HX - XH): A=H,B=I for HX -> H⊗I ; A=I,B=H for XH -> I⊗H^T
+    L = -1j * (sp.kron(Hc, I, format='csr') - sp.kron(I, Hc.transpose(), format='csr'))
 
     for L_j in jump_ops:
 
         L_j = L_j.tocsr()
         L_j_dag = L_j.conjugate().transpose()
         L_j_dag_L_j = (L_j_dag @ L_j).tocsr()
-        L += sp.kron(L_j.conjugate(), L_j, format='csr')
-        L -= 0.5 * (sp.kron(I, L_j_dag_L_j, format='csr') + sp.kron(L_j_dag_L_j.transpose(), I, format='csr'))
+
+        # L X L^dag: A=L_j, B=L_j^dag -> L_j ⊗ (L_j^dag)^T = L_j ⊗ conj(L_j)
+        L += sp.kron(L_j, L_j.conjugate(), format='csr')
+
+        # -0.5(L^dag L X + X L^dag L): A=L^dag L,B=I -> (L^dag L)⊗I ; A=I,B=L^dag L -> I⊗(L^dag L)^T
+        L -= 0.5 * (sp.kron(L_j_dag_L_j, I, format='csr') + sp.kron(I, L_j_dag_L_j.transpose(), format='csr'))
 
     return L.tocsr()
 
