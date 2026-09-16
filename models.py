@@ -10,11 +10,13 @@ class BoseHubbard:
     """Bose-Hubbard model with set parameter values
     """
 
-    def __init__(self, L, N, J, U, dissipation, gamma, n_local_max, M_list=[], kappa_list=[], pi_list=[] ):
+    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, M_list=[], kappa_list=[], pi_list=[] ):
         self.L = L
         self.N = N
         self.J = J
         self.U = U
+        self.f = f
+        self.det = det
         self.dissipation = dissipation
         self.gamma = gamma
         self.n_local_max = n_local_max
@@ -37,24 +39,35 @@ class BoseHubbard:
         J = self.J
         U = self.U
         N = self.N
+        f = self.f
+        det = self.det
 
         dim = len(fock_basis)
         
         # initialize empty Hamiltonian matrix
         H = sp.csr_matrix((dim, dim), dtype=complex)
-        
-        # two-site interaction
+
+        # build all a_i once
+        a_list = [get_a_i(i, fock_basis) for i in range(L)]
+
+        # hopping: -J * (a_i^dagger a_j + a_j^dagger a_i)
         for i in range(L):
             j = (i + 1) % L  # periodic boundary
-            a_i = get_a_i(i, fock_basis)
-            a_j = get_a_i(j, fock_basis)
-            
-            # -J * (a_i^dagger a_j + a_j^dagger a_i)
+            a_i, a_j = a_list[i], a_list[j]
             H += -J * (a_i.conjugate().transpose() @ a_j + a_j.conjugate().transpose() @ a_i)
-            
+
         # on-site interaction U / N * n*(n-1))
         diag_vals = [U / N * sum(n * (n - 1) for n in state) for state in fock_basis]
-        H = H + sp.diags(diag_vals, dtype=complex, format='csr')
+
+        # driving: f * sqrt(N) * (a_i + a_i^dagger)
+        for i in range(L):
+            a_i = a_list[i]
+            H += f * np.sqrt(N) * (a_i + a_i.conjugate().transpose())
+
+        # driving: detuning: - det * a_i^dagger a_
+        diag_det = [- det * sum(n for n in state) for state in fock_basis]
+
+        H = H + sp.diags(diag_vals, dtype=complex, format='csr') + sp.diags(diag_det, dtype=complex, format='csr')
             
         return H
     
@@ -93,22 +106,36 @@ class BoseHubbard:
             jump_ops_fock (np.2darray): jump operators in Fock basis
         """
 
-        M_list = self.M_list if self.M_list else np.arange(-self.N, self.N+1, 1)
-        kappa_list = self.kappa_list if self.kappa_list else np.arange(0, self.L+1, 1)
+        no_driving = (self.f == 0.0 and self.det == 0.0)
+
+        kappa_list = self.kappa_list if self.kappa_list else np.arange(0, self.L, 1)
         pi_list = self.pi_list if self.pi_list else None
-        M_set, kappa_set = set(M_list), set(kappa_list)
+
+        kappa_set = set(kappa_list)
         pi_set = set(pi_list) if pi_list is not None else None
+
+        if no_driving:
+            M_list = self.M_list if self.M_list else np.arange(-self.N, self.N+1, 1)
+            M_set = set(M_list)
 
         sectors = {}
 
         # select wanted sectors
         for ss_L in sym_basis_L:
 
-            if ss_L.M not in M_set or ss_L.kappa not in kappa_set:
+            if ss_L.kappa not in kappa_set:
                 continue
             if pi_set is not None and ss_L.pi not in pi_set:
                 continue
-            sectors.setdefault((ss_L.M, ss_L.kappa, ss_L.pi), []).append(ss_L)
+
+            if no_driving:
+                if ss_L.M not in M_set:
+                    continue
+
+            if no_driving:
+                sectors.setdefault((ss_L.M, ss_L.kappa, ss_L.pi), []).append(ss_L)
+            else:
+                sectors.setdefault((ss_L.kappa, ss_L.pi), []).append(ss_L)
 
         dim = len(fock_basis)
         fock_to_idx = {state: i for i, state in enumerate(fock_basis)}
@@ -122,9 +149,14 @@ class BoseHubbard:
         # build selected blocks
         for sector_key, sector_states in sectors.items():
 
-            M, kappa, pi = sector_key
             size = len(sector_states)
-            print(f"Building sector [M={M}, kappa={kappa}, pi={pi}], #states: {size}")
+
+            if no_driving:
+                M, kappa, pi = sector_key
+                print(f"Building sector [M={M}, kappa={kappa}, pi={pi}], #states: {size}")
+            else:
+                kappa, pi = sector_key
+                print(f"Building sector [kappa={kappa}, pi={pi}], #states: {size}")
 
             RHO = sp.hstack([ss.to_sparse(fock_to_idx, dim) for ss in sector_states], format='csc')
             LRHO = L_full @ RHO

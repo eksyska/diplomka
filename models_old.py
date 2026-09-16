@@ -14,13 +14,15 @@ from basis_models import *
 class Lindbladian():
     """Lindbladian object"""
 
-    def __init__(self, L_op, L, N, J, U, gamma, dissipation_type, c_ops_template, basis, n_local_max=None, is_symmetric=False):
+    def __init__(self, L_op, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, basis, n_local_max=None, is_symmetric=False):
 
         self.L_op = L_op
         self.L = L
         self.N = N
         self.J = J
         self.U = U
+        self.f = f
+        self.det = det
         self.gamma = gamma
         self.dissip = dissipation_type
         self.c_templ = c_ops_template
@@ -43,14 +45,16 @@ class Lindbladian():
         return self
     
 
-def bose_hubbard_L_full(L, N, J, U, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
+def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
     """Builds full Bose-Hubbard model Lindbladian utilizing QuTip's liouvillian function
-    
+
     Args:
         L (int): number of sites
         N (int): number of excitations
         J (float): jump coefficient
         U (float): energy coefficient
+        delta (float): on-site detuning Delta, coefficient of -Delta * sum_j n_j
+        f_drive (float): coherent drive amplitude f in H_D = f*sqrt(N)*sum_j (a_j^dag + a_j)
         gamma (tuple of floats): dissipation rates
         dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
         c_ops_template (tuple of floats): per-site dissipation weights
@@ -60,8 +64,9 @@ def bose_hubbard_L_full(L, N, J, U, gamma, dissipation_type, c_ops_template, n_l
     Returns:
         Lindbladian: Lindbladian
     """
-    
-    print(f"[*] building lindbladian for L={L}, N={N}, J={J}, U={U}, gamma={gamma}, symmetric={is_symmetric}")
+
+    print(f"[*] building lindbladian for L={L}, N={N}, J={J}, U={U}, gamma={gamma}, "
+          f"delta={det}, f_drive={f}, symmetric={is_symmetric}")
 
     basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
     if is_symmetric:
@@ -69,18 +74,18 @@ def bose_hubbard_L_full(L, N, J, U, gamma, dissipation_type, c_ops_template, n_l
         basis = build_sym_basis(basis)
 
     dim = len(basis)
-    
-    a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)] 
-    H, c_ops = build_H_and_cops(a_list, L, N, J, U, gamma, dissipation_type, c_ops_template, dim)
-    
+
+    a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)]
+    H, c_ops = build_H_and_cops(a_list, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, dim)
+
     L_op = qt.liouvillian(H, c_ops)
 
-    lind = Lindbladian(L_op, L, N, J, U, gamma, dissipation_type, c_ops_template, basis, n_local_max, is_symmetric)
+    lind = Lindbladian(L_op, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, basis, n_local_max, is_symmetric)
 
     return lind
 
 
-def build_H_and_cops(a_list, L, N, J, U, gamma, dissipation, c_ops_template, dim):
+def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, dissipation, c_ops_template, dim):
     """Builds Hamiltonian and dissipation operators
 
     Args:
@@ -89,24 +94,37 @@ def build_H_and_cops(a_list, L, N, J, U, gamma, dissipation, c_ops_template, dim
         N (int): number of excitations
         J (float): jump coefficient
         U (float): energy coefficient
+        delta (float): detuning coefficient for -Delta * sum_j n_j
+        f_drive (float): coherent drive amplitude f in H_D = f*sqrt(N)*sum_j (a_j^dag + a_j)
         gamma (tuple of floats): dissipation rates
         dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
         c_ops_template (tuple of floats): per-site dissipation weights
         dim (int): Hamiltonian dimenstion
-
+        
     Returns:
         tuple of Qobjs: Hamiltonian and list of dissipation operators
     """
-    
+
     H = qt.Qobj(np.zeros((dim, dim), dtype=complex))
 
+    # hopping term
     for i in range(L):
         j = (i + 1) % L
         H += -J * (a_list[i].dag() * a_list[j] + a_list[j].dag() * a_list[i])
 
+    # on-site interaction term
     for i in range(L):
         n_i = a_list[i].dag() * a_list[i]
         H += U / N * n_i * (n_i - 1)
+
+    # detuning term: -Delta * sum_j n_j
+    for i in range(L):
+        n_i = a_list[i].dag() * a_list[i]
+        H += -det * n_i
+
+    # coherent drive term: H_D = f * sqrt(N) * sum_j (a_j^dag + a_j)
+    for i in range(L):
+        H += f * np.sqrt(N) * (a_list[i].dag() + a_list[i])
 
     c_ops = []
     for i in range(L):
