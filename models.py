@@ -193,10 +193,10 @@ def build_full_liouvillian(H, jump_ops):
         L_j_dag = L_j.conjugate().transpose()
         L_j_dag_L_j = (L_j_dag @ L_j).tocsr()
 
-        # L X L^dag: A=L_j, B=L_j^dag -> L_j ⊗ (L_j^dag)^T = L_j ⊗ conj(L_j)
+        # L_j ⊗ L_j*
         L += sp.kron(L_j, L_j.conjugate(), format='csr')
 
-        # -0.5(L^dag L X + X L^dag L): A=L^dag L,B=I -> (L^dag L)⊗I ; A=I,B=L^dag L -> I⊗(L^dag L)^T
+        # -0.5 [ (L^dag L)⊗I + I⊗(L^dag L)^T ]
         L -= 0.5 * (sp.kron(L_j_dag_L_j, I, format='csr') + sp.kron(I, L_j_dag_L_j.transpose(), format='csr'))
 
     return L.tocsr()
