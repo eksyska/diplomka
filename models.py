@@ -74,7 +74,10 @@ class BoseHubbard:
 
         elif self.dissipation == "PUMPLOSS":
             a_i_list = [get_a_i(i, fock_basis) for i in range(self.L)]
-            jump_ops = [a_i * np.sqrt(self.gamma[0]) + a_i.conjugate().transpose() * np.sqrt(self.gamma[1]) for a_i in a_i_list]
+            jump_ops = []
+            for a_i in a_i_list:
+                jump_ops.append(a_i * np.sqrt(self.gamma[0]))
+                jump_ops.append(a_i.conjugate().transpose() * np.sqrt(self.gamma[1]))
 
         return jump_ops
 
