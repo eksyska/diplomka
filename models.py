@@ -10,7 +10,7 @@ class BoseHubbard:
     """Bose-Hubbard model with set parameter values
     """
 
-    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, n_cut=None, M_list=[], kappa_list=[], pi_list=[] ):
+    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, M_list=[], kappa_list=[], pi_list=[], n_cut=None ): 
         """
         Args:
             N (int): the semiclassical parameter, 1/hbar_eff. It sets the scaling of the
