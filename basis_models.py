@@ -1,41 +1,115 @@
 import numpy as np
+import scipy.sparse as sp
 import qutip as qt
 import itertools
 
-from scipy.sparse import lil_matrix
-
 from math_funcs import *
 
-from math_funcs import _ALL
 
 
-###################################### BASIS BUILDING ######################################
+###################################### STATE CLASSES ######################################
 
 class SymState:
-    """instance of this class is an eigenstate of T, P operators
+    """Eigenstate of translation (and optionally parity)
     """
 
-    def __init__(self, states, coeffs, k, p=None):
-        self.states = states
-        self.coeffs = coeffs
+    def __init__(self, fock_states, coeffs, k, p=None):
+        self.fock_states = tuple(fock_states)
+        self.coeffs = np.asarray(coeffs, dtype=complex)
         self.k = k
         self.p = p
-        self.n = sum(states[0])
+        self.n = sum(self.fock_states[0])
+    
+    def __repr__(self):
+        string = ""
+        for f_s in self.fock_states:
+            string = f"{string} {str(f_s)}"
+        return f"SymState(k={self.k}, p={self.p}): {string}"
+
+
+class StateL:
+    """Represents a state on Liouville space
+    """
+
+    def __init__(self, ket, bra):
+        """
+        Args:
+            self.ket (SymState)
+            self.bra (SymState)
+        """
+        self.ket = ket
+        self.bra = bra
+    
+    @property
+    def L(self):
+        return len(self.ket.fock_states[0])
+
+    @property
+    def kappa(self):
+        return (self.ket.k - self.bra.k) % self.L
+    
+    @property
+    def M(self):
+        return sum(self.ket.fock_states[0]) - sum(self.bra.fock_states[0])
+
+    def __repr__(self):
+        return f"\nStateL(kappa={self.kappa}):\n ket: {self.ket} \n bra: {self.bra})"
+
+
+class SymStateL:
+
+    def __init__(self, states, coeffs, kappa, pi=None):
+        self.states = tuple(states)
+        self.coeffs = np.asarray(coeffs, dtype=complex)
+        self.kappa = kappa
+        self.pi = pi
+        self.M = states[0].M
 
     def __str__(self):
-        def fmt(c):
-            if np.iscomplex(c):
-                return f"{c.real:.2f}{c.imag:+.2f}j"
-            return f"{float(c):.2f}"
-
-        terms = " + ".join(
-            f"{fmt(self.coeffs[i])} {self.states[i]}"
-            for i in range(len(self.states))
+        return (
+            f"\n\nSYM STATE L (kappa={self.kappa}, pi={self.pi}):\n{self.states}"
         )
-        return f"N={self.n} k={self.k} p={self.p} state = {terms}"
     
     __repr__ = __str__
-    
+
+    def to_sparse(self, fock_to_idx, dim):
+        """Vectorizes a SymStateL directly as a sparse dim^2 column
+
+        Args:
+            fock_to_idx (dict): maps a Fock basis state (tuple) to its index in fock_basis
+            dim (int): dimension of the Fock basis
+
+        Returns:
+            scipy.sparse.csc_matrix: vectorized SymStateL (sparse dim^2 column)
+        """
+
+        rows, data = [], []
+        for state_l, coeff_l in zip(self.states, self.coeffs):
+
+            ket, bra = state_l.ket, state_l.bra
+
+            for f_k, c_k in zip(ket.fock_states, ket.coeffs):
+
+                i = fock_to_idx[f_k]
+                ket_val = coeff_l * c_k
+
+                for f_b, c_b in zip(bra.fock_states, bra.coeffs):
+
+                    j = fock_to_idx[f_b]
+                    rows.append(i * dim + j)  # row-major flat index
+                    data.append(ket_val * np.conj(c_b))
+
+        v = sp.coo_matrix((data, (rows, [0]*len(rows))), shape=(dim*dim, 1), dtype=complex).tocsc()
+
+        # normalize vector
+        norm = np.sqrt(np.sum(np.abs(v.data)**2))
+        if norm > 1e-12:
+            v = v / norm
+            
+        return v
+
+
+###################################### BASIS BUILDERS ######################################   
 
 def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
     """Builds Bose basis in Fock space
@@ -64,29 +138,26 @@ def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
     return basis
 
 
-
-
-def build_ket_orbits(basis_list):
+def build_ket_orbits(fock_basis):
     """Find all translation orbits of single Fock states.
  
     Args:
-        basis_list (list of tuples): Fock basis states
+        fock_basis (list of tuples): Fock basis states
  
     Returns:
-        ket_orbits  (list of lists): each entry is the orbit [s, T(s), T²(s), ...] ordered from the seed (= lexicographically smallest element).
+        ket_orbits (list of lists): each entry is the orbit [s, T(s), T²(s), ...]
         ket_orbit_of (dict): state -> (orbit_index, position_within_orbit)
     """
-    
     ket_orbits = []
- 
     visited = set()
-    for s in basis_list:
+
+    for s in fock_basis:
 
         if s in visited:
             continue
-
         orb = []
         cur = s
+
         while True:
             orb.append(cur)
             visited.add(cur)
@@ -94,91 +165,145 @@ def build_ket_orbits(basis_list):
             if cur == s:
                 break
 
+        # set ordering of the orbit (by rotating the list, largest state is first)
+        max_idx = max(range(len(orb)), key=lambda i: orb[i])
+        orb = orb[max_idx:] + orb[:max_idx]
         ket_orbits.append(orb)
- 
+
     return ket_orbits
 
 
-def build_sym_basis(basis_list):
-    """Builds Fock basis from T, P operators eigenstates
+def build_translation_basis(fock_basis):
+    """Builds translation invariant basis in Fock space
 
     Args:
-        basis_list (list of int tuples): oringinal Fock basis
+        fock_basis (list of tuples): Fock basis states
 
     Returns:
-        list of SymStates: new basis
+        list of SymStates: translation invariant basis states in Fock space
     """
 
-    L = len(basis_list[0]) #number of sites
-    ket_orbits = build_ket_orbits(basis_list)
+    L = len(fock_basis[0])
+    orbits = build_ket_orbits(fock_basis)
 
-    sym_basis = []
-    processed = set()
-    for orb in ket_orbits:
+    basis = []
 
-        k_step = L // len(orb) if L % len(orb) == 0 else 1
+    for orbit in orbits:
 
-        for k in range(0, L, k_step):
+        period = len(orbit)
 
-            s = []
-            s_coeffs = []
+        for m in range(period):
 
-            for l in range(len(orb)):
-                #build state from orbits
+            k = m * L // period
 
-                s.append(orb[l])
-                s_coeffs.append( clean_num_error(np.exp(1j * 2 * np.pi * k/L * l)) )
+            coeffs = np.exp(2j * np.pi * k * np.arange(period) / L) / np.sqrt(period)
+            basis.append(SymState(orbit, coeffs, k))
 
-            if k==0 or k==L/2:
-                #handle parity
+    return basis
 
-                inverted_s = [invert(vec) for vec in s]
-                is_conj = set(map(tuple, inverted_s)) == set(map(tuple, s))
 
-                if frozenset(map(tuple, s)) in processed:
-                    #this state has already been processed
-                    continue
+def build_sym_L_basis(fock_basis):
+    """Builds translation and parity invariant basis in Lioville space
 
-                if is_conj:
-                    #inverted state stays the same
+    Args:
+        fock_basis (list of tuples): Fock basis states
 
-                    s_coeffs = [1/np.sqrt(len(s_coeffs)) * c for c in s_coeffs]
-
-                    if k == 0:
-                        par = 1
-                    else:
-                        # k == L//2
-                        p_state = invert(s[0])
-                        p_pos = next(t for t, st in enumerate(s) if st == p_state)
-                        phase = np.exp(2j * np.pi * k * p_pos / L)
-                        par = int(np.round(phase.real))
-
-                    sym_state = SymState(s, s_coeffs, k, p=par)
-                    sym_basis.append(sym_state)
-
-                else:
-                    #inverted state is a different translation eigenstate
-                    #build proper parity eigenstate
-
-                    processed.add(frozenset(map(tuple, inverted_s)))
- 
-                    for s_p in (1,-1):
-                        s_coeffs_new = s_coeffs + [s_p * c for c in s_coeffs]
-                        s_coeffs_new = [1/np.sqrt(len(s_coeffs_new)) * c for c in s_coeffs_new]
-                        sym_state = SymState(s + inverted_s, s_coeffs_new, k, p=s_p)
-                        sym_basis.append(sym_state)
-
-            else:    
-                s_coeffs = [1/np.sqrt(len(s_coeffs)) * c for c in s_coeffs]  
-                sym_state = SymState(s, s_coeffs, k, p=None)
-                sym_basis.append(sym_state)
-
-    """
-    for s in sym_basis:
-        print(s)
+    Returns:
+        list of SymStateL: translation and parity invariant basis states in Lioville space
     """
 
-    return sym_basis
+    L = len(fock_basis[0])
+    t_basis = build_translation_basis(fock_basis)
+
+    t_lookup = {_key(ts): ts for ts in t_basis}
+
+    def parity_partner(sym_state):
+        """Find the parity partner in translation invariant basis
+
+        Args: 
+            sym_state (SymState): translation invariant state to invert
+            t_basis (list of SymStates): translation invariant basis states on Fock space
+            L (int): number of sites
+
+        Returns:
+            partner (Symstate): parity partner to the original state
+            phase (float): phase changed by inverting
+        """
+
+        inv_states = [invert(s) for s in sym_state.fock_states]
+        target_key = (frozenset(inv_states), (-sym_state.k) % L)
+        partner = t_lookup[target_key]
+
+        naive_map = dict(zip(inv_states, sym_state.coeffs))
+        partner_map = dict(zip(partner.fock_states, partner.coeffs))
+        ref = partner.fock_states[0]
+        phase = naive_map[ref] / partner_map[ref]
+
+        return partner, phase
+
+    sym_statesL = []
+    seen = set() 
+
+    for ket in t_basis:
+
+        ket_key = _key(ket)
+
+        for bra in t_basis:
+
+            bra_key = _key(bra)
+            pair_key = (ket_key, bra_key)
+            if pair_key in seen:
+                continue
+
+            kappa = (ket.k - bra.k) % L
+            s_l = StateL(ket, bra)
+
+            special_kappa = {0, L // 2} if L % 2 == 0 else {0} # kappa != 0 and kappa != L/2 (if L even)
+
+            if kappa not in special_kappa:
+
+                sym_statesL.append(SymStateL((s_l,), (1,), kappa, pi=None))
+                seen.add(pair_key)
+                continue
+
+            # kappa == 0 or kappa == L/2 (if L even)
+
+            # find inverted state among translation symmetric states
+            ket_partner, ket_phase = parity_partner(ket)
+            bra_partner, bra_phase = parity_partner(bra)
+            inv_key = (_key(ket_partner), _key(bra_partner))
+            total_phase = ket_phase * np.conj(bra_phase)
+
+            if inv_key == pair_key:
+                # parity maps the state on itself
+
+                p = 1 if total_phase.real > 0 else -1
+                sym_statesL.append(SymStateL((s_l,), (1,), 0, pi=p))
+                seen.add(pair_key)
+
+            else:
+                # parity maps the state on a different translation state
+
+                inv = StateL(ket_partner, bra_partner)
+                for p in (-1, 1):
+                    coeffs = [1/np.sqrt(2), p * total_phase / np.sqrt(2)]
+                    sym_statesL.append(SymStateL([s_l, inv], coeffs, 0, pi=p))
+                seen.add(pair_key)
+                seen.add(inv_key)
+
+    return sym_statesL
+
+
+def _key(ss):
+    """Hashable key to compare Symstates
+    
+    Args:
+        ss (SymState)
+    
+    Returns:
+        tuple (fock_states, k)
+    """
+    return (frozenset(ss.fock_states), ss.k)
 
 
 ###################################### SYMMETRY OPERATORS ######################################
@@ -196,67 +321,9 @@ def translate(state):
     state = tuple(state)
     return tuple(state[-1:] + state[:-1])
 
-def translation_operator(basis):
-    """Builds a translation operator
-
-    Args:
-        basis (list of int tuples): basis states
-
-    Returns:
-        Qobj: translation operator
-    """
-
-    dim = len(basis)
-    T = lil_matrix((dim, dim), dtype=complex)
-
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    # for indexes i, states s
-    for i, s in enumerate(basis):
-        j = state_index[translate(s)] # translate original state and find corresponding new index
-        T[j, i] = 1.0 # <j|T|i> = 1 <=> T|i> = |j>
-
-    return qt.Qobj(T)
 
 def invert(state):
     """Reflects a state"""
     state = tuple(state)
     return tuple(state[::-1])
 
-def parity_operator(basis):
-    """Builds parity operator P: site i -> L-1-i."""
-
-    dim = len(basis)
-    # assign index i to every basis state
-    state_index = {tuple(s): i for i, s in enumerate(basis)}
-
-    P = lil_matrix((dim, dim), dtype=complex)
-    for i, s in enumerate(basis):
-        j = state_index[invert(s)]
-        P[j, i] = 1.0
-
-    return qt.Qobj(P)
-
-def N_super(basis):
-    """Builds super-particle number operator N = n⊗I - I⊗n^T in Liouville space.
-
-    Eigenvalue of N on |Na><Nb| is Na - Nb.
-
-    Args:
-        basis (list): basis states
-
-    Returns:
-        Qobj: super-particle number superoperator
-    """
-    n_per_state = np.array([sum(s) for s in basis])
-    dim = len(basis)
-
-    # number operator as diagonal matrix
-    n_op = qt.Qobj(np.diag(n_per_state.astype(complex)))
-
-    # N = n⊗I - I⊗n^T
-    I = qt.qeye(dim)
-    N_super = qt.sprepost(n_op, I) - qt.sprepost(I, n_op.trans())
-
-    return N_super

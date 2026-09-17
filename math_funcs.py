@@ -79,39 +79,26 @@ def clean_num_error(values, tol=1e-10):
     return values
 
 
-def compare_complex(arr1, arr2, precision=9):
+def compare_complex(arr1, arr2, precision=10):
     """
-    Scales well for large arrays. Rounds to 'precision' decimals 
-    to neutralize floating point noise before sorting.
+    Compares two complex arrays, their order doesn't matter.
+    Used mainly to compare evals.
+
+    Args:
+    arr1 (np.array)
+    arr2 (np.array)
+    precision (int): Number of valid digits when rounding to compare. Defaults to 10.
     """
     if len(arr1) != len(arr2):
         return False
+        
+    idx1 = np.lexsort((arr1.imag, np.round(arr1.real, precision)))
+    s1 = arr1[idx1]
+    idx2 = np.lexsort((arr2.imag, np.round(arr2.real, precision)))
+    s2 = arr2[idx2]
     
-    def normalize(c):
-        # Round both parts to create a stable sort key
-        return (round(c.real, precision), round(c.imag, precision))
-
-    # Sort based on the rounded values
-    sort_key = lambda c: normalize(c)
-    
-    s1 = sorted(arr1, key=sort_key)
-    s2 = sorted(arr2, key=sort_key)
-
-    
-    # Compare rounded versions
-    for c1, c2 in zip(s1, s2):
-        if normalize(c1) != normalize(c2):
-
-            miss_a, miss_b = get_complex_mismatches(s1, s2)
-            
-            if miss_b:
-                print(f"# of mismatched elements: {len(miss_b)}")
-                print("\n[!] Elements present in B but missing/extra relative to A:")
-                for val in miss_b:
-                    print(f"  - {val}")
-            return False    
-
-    return True
+    is_eq = np.allclose(s1,s2)
+    return is_eq
 
 
 def get_complex_mismatches(arr1, arr2, rel_tol=1e-09, abs_tol=0.0):

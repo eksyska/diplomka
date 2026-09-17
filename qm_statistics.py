@@ -93,6 +93,7 @@ def csr_from_evals(block_evals, csr_func, kappa=_ALL, M=_ALL):
 
     pooled = np.concatenate(all_ratios)
     print(f"pooled <|r|> = {np.abs(pooled).mean():.4f}")
+    print(f"pooled -<cos(arg(z))> = {-np.cos(np.angle(pooled)).mean():.4f}")
     return pooled
 
 
