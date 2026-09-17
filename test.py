@@ -23,17 +23,20 @@ c_ops_template1 = (1,0.7,1.3,1.5)
 ################## THE IMPORTANT SETTINGS ##################
 
 L = 3
-N = 7
-n_local_max = N
+N = 6
+
+n_cut = 9
+n_local_max = n_cut
+
 J = -1
 U = 1.0
-f = 1.3
-det = 3
+f = 0.7
+det = 1
 g_l = 1.2
 g_p = 0.2 #kappa = g_l - g_p
 
-gamma1 = np.sqrt(g_l)
-gamma2 = np.sqrt(g_p)
+gamma1 = g_l
+gamma2 = g_p
 
 ############################################################
 
@@ -45,16 +48,19 @@ if dissipation=="PUMPLOSS":
 else:
     gamma = (gamma1,)
 
-filename = f"L{L}_N{N}_J{J}_U{U}_{dissipation}"
+filename = f"L{L}_N{N}_J{J}_U{U}_f{f}_det{det}_gl{g_l}_gp{g_p}_{dissipation}"
 subfolder = f"{dissipation}"
 
 time_start = time.time()
 
 if symmetric_dissipation:
 
-    bh = BoseHubbard(L, N, J, U, f, det, dissipation, gamma, n_local_max=n_local_max, M_list=[], kappa_list=[0], pi_list=[1])
+    bh = BoseHubbard(L, N, J, U, f, det, dissipation, gamma, n_local_max=n_local_max, n_cut=n_cut, M_list=[], kappa_list=[0], pi_list=[1])
 
-    fock_basis = build_bose_basis(bh.L, bh.N, fixed_N=False)
+    # does the Fock cutoff actually hold the state these parameters ask for?
+    cutoff_report(L, N, J, U, f, det, gamma, n_cut=n_cut)
+
+    fock_basis = bh.build_basis(fixed_N=False)
     L_basis = build_sym_L_basis(fock_basis)
 
     blocks = bh.build_L_blocks(fock_basis, L_basis)
