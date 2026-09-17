@@ -220,7 +220,7 @@ def uniform_fixed_points(g, det_tilde, kappa, f):
     return np.sort(roots[np.abs(roots.imag) < 1e-9].real)
 
 
-def cutoff_report(L, N, J, U, f, det, gamma, n_cut=None, verbose=True):
+def cutoff_report(L, N, J, U, f, det, gamma, n_cut=None):
     """Checks whether the Fock cutoff can hold the state the parameters ask for
 
     The drive is scaled as f*sqrt(N) and g = U*N is held fixed, so the classical density
