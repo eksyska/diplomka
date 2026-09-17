@@ -278,7 +278,7 @@ def build_sym_L_basis(fock_basis):
                 # parity maps the state on itself
 
                 p = 1 if total_phase.real > 0 else -1
-                sym_statesL.append(SymStateL((s_l,), (1,), 0, pi=p))
+                sym_statesL.append(SymStateL((s_l,), (1,), kappa, pi=p))
                 seen.add(pair_key)
 
             else:
@@ -287,7 +287,7 @@ def build_sym_L_basis(fock_basis):
                 inv = StateL(ket_partner, bra_partner)
                 for p in (-1, 1):
                     coeffs = [1/np.sqrt(2), p * total_phase / np.sqrt(2)]
-                    sym_statesL.append(SymStateL([s_l, inv], coeffs, 0, pi=p))
+                    sym_statesL.append(SymStateL([s_l, inv], coeffs, kappa, pi=p))
                 seen.add(pair_key)
                 seen.add(inv_key)
 
