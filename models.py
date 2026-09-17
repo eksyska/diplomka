@@ -10,9 +10,18 @@ class BoseHubbard:
     """Bose-Hubbard model with set parameter values
     """
 
-    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, M_list=[], kappa_list=[], pi_list=[] ):
+    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, n_cut=None, M_list=[], kappa_list=[], pi_list=[] ):
+        """
+        Args:
+            N (int): the semiclassical parameter, 1/hbar_eff. It sets the scaling of the
+                Hamiltonian (U/N, f*sqrt(N)) and nothing else.
+            n_cut (int, optional): total-boson cutoff of the Fock basis, sum_i n_i <= n_cut.
+                Kept separate from N: the mean occupation the parameters ask for <n_i> = N * |z|^2. See cutoff_report.
+            n_local_max (int): per-site cutoff of the Fock basis.
+        """
         self.L = L
         self.N = N
+        self.n_cut = N if n_cut is None else n_cut
         self.J = J
         self.U = U
         self.f = f
@@ -24,6 +33,12 @@ class BoseHubbard:
         self.kappa_list = kappa_list
         self.pi_list = pi_list
 
+    def build_basis(self, fixed_N=False):
+        """
+        Builds the Fock basis. Uses self.n_cut as the total-boson cutoff and self.n_local_max as the per-site cutoff.
+        """
+
+        return build_bose_basis(self.L, self.n_cut, fixed_N=fixed_N, n_local_max=self.n_local_max)
 
     def build_H(self, fock_basis):
         """Builds Bose-Hubbard Hamiltonian in Fock basis
@@ -51,7 +66,10 @@ class BoseHubbard:
         a_list = [get_a_i(i, fock_basis) for i in range(L)]
 
         # hopping: -J * (a_i^dagger a_j + a_j^dagger a_i)
-        for i in range(L):
+        # L >= 3 has L bonds; L = 2 has a single bond (i -> i+1 would count it twice), L = 1 has none
+        n_bonds = L if L > 2 else L - 1
+
+        for i in range(n_bonds):
             j = (i + 1) % L  # periodic boundary
             a_i, a_j = a_list[i], a_list[j]
             H += -J * (a_i.conjugate().transpose() @ a_j + a_j.conjugate().transpose() @ a_i)
@@ -75,22 +93,45 @@ class BoseHubbard:
     def build_jump_ops(self, fock_basis):
         """Builds jump operators in Fock basis
 
-        Args:
-            fock_basis (list of int tuples): Fock basis states
+        Implements sum_i ( gamma_l D[b_i] + gamma_p D[b_i^dagger] + gamma_d D[n_i] ) rho.
+        The rates are read from self.gamma in this order:
+
+            "LOSS"       gamma = (gamma_l,)
+            "PUMPLOSS"   gamma = (gamma_l, gamma_p)
+            "DEPHASING"  gamma = (gamma_d,)
+            "FULL"       gamma = (gamma_l, gamma_p, gamma_d)
+
+        self.gamma holds the RATES themselves.
 
         Returns:
             list of np.2darrays: list of jump operators on all sites
         """
 
         if self.dissipation == "LOSS":
-            jump_ops = [get_a_i(i, fock_basis) * np.sqrt(self.gamma[0]) for i in range(self.L)]
-
+            rates = {"loss": self.gamma[0]}
         elif self.dissipation == "PUMPLOSS":
-            a_i_list = [get_a_i(i, fock_basis) for i in range(self.L)]
-            jump_ops = []
-            for a_i in a_i_list:
-                jump_ops.append(a_i * np.sqrt(self.gamma[0]))
-                jump_ops.append(a_i.conjugate().transpose() * np.sqrt(self.gamma[1]))
+            rates = {"loss": self.gamma[0], "pump": self.gamma[1]}
+        elif self.dissipation == "DEPHASING":
+            rates = {"deph": self.gamma[0]}
+        elif self.dissipation == "FULL":
+            rates = {"loss": self.gamma[0], "pump": self.gamma[1], "deph": self.gamma[2]}
+        else:
+            raise ValueError(f"unknown dissipation type: {self.dissipation!r} "
+                             f"(expected LOSS / PUMPLOSS / DEPHASING / FULL)")
+
+        jump_ops = []
+
+        for i in range(self.L):
+
+            a_i = get_a_i(i, fock_basis)
+            a_i_dag = a_i.conjugate().transpose()
+
+            if "loss" in rates:
+                jump_ops.append(a_i * np.sqrt(rates["loss"]))
+            if "pump" in rates:
+                jump_ops.append(a_i_dag * np.sqrt(rates["pump"]))
+            if "deph" in rates:
+                jump_ops.append((a_i_dag @ a_i) * np.sqrt(rates["deph"]))
 
         return jump_ops
 
@@ -106,7 +147,7 @@ class BoseHubbard:
             jump_ops_fock (np.2darray): jump operators in Fock basis
         """
 
-        no_driving = (self.f == 0.0 and self.det == 0.0)
+        no_driving = (self.f == 0.0)
 
         kappa_list = self.kappa_list if self.kappa_list else np.arange(0, self.L, 1)
         pi_list = self.pi_list if self.pi_list else None
@@ -115,7 +156,7 @@ class BoseHubbard:
         pi_set = set(pi_list) if pi_list is not None else None
 
         if no_driving:
-            M_list = self.M_list if self.M_list else np.arange(-self.N, self.N+1, 1)
+            M_list = self.M_list if self.M_list else np.arange(-self.n_cut, self.n_cut+1, 1)
             M_set = set(M_list)
 
         sectors = {}
@@ -163,6 +204,69 @@ class BoseHubbard:
             blocks[sector_key] = (RHO.conjugate().transpose() @ LRHO).toarray()
 
         return blocks
+
+###################################### PARAMETER DIAGNOSTICS ######################################
+
+
+def uniform_fixed_points(g, det_tilde, kappa, f):
+    """Uniform classical fixed points n = |z|^2
+        g^2 n^3 - 2 g det_tilde n^2 + (det_tilde^2 + kappa^2/4) n - f^2 = 0
+
+    Returns:
+        np.ndarray: real roots, sorted (1 root = monostable, 3 roots = bistable)
+    """
+
+    roots = np.roots([g**2, -2 * g * det_tilde, det_tilde**2 + kappa**2 / 4, -f**2])
+    return np.sort(roots[np.abs(roots.imag) < 1e-9].real)
+
+
+def cutoff_report(L, N, J, U, f, det, gamma, n_cut=None, verbose=True):
+    """Checks whether the Fock cutoff can hold the state the parameters ask for
+
+    The drive is scaled as f*sqrt(N) and g = U*N is held fixed, so the classical density
+    n = |z|^2 corresponds to a mean site occupation <n_i> = N * n. The basis, however, is
+    cut at sum_i n_i <= n_cut. If L * N * n exceeds n_cut, the computed spectrum is not the faithful spectrum of the model.
+
+    Args:
+        L, N, J, U, f, det: as in BoseHubbard
+        gamma (tuple of floats): dissipation RATES
+        n_cut (int, optional): total-boson cutoff of the basis. Defaults to N.
+    """
+
+    if n_cut is None:
+        n_cut = N
+
+    b = 2 if L > 2 else L - 1  # Number of bonds of a periodic chain
+
+    g = 2.0 * U                     
+    det_tilde = det + b * J + U / N
+    kappa = gamma[0] - (gamma[1] if len(gamma) > 1 else 0.0)  # Warning! This kappa is not the same as the kappa in the symmetry sector labels, which is a quasimomentum index.
+
+    n_cl = uniform_fixed_points(g, det_tilde, kappa, f)
+    n_site = N * n_cl.max()
+    n_total = L * n_site
+    n_pump = (gamma[1] / kappa) if (len(gamma) > 1 and kappa > 0) else 0.0
+
+    bistable = (g * det_tilde > 0) and (abs(det_tilde) > np.sqrt(3) / 2 * kappa)
+    ok = (n_total < 0.5 * n_cut) and (kappa > 0)
+
+    print(f"[params] g = {g:.4g}, Delta_tilde = {det_tilde:.4g}, kappa = {kappa:.4g}, f = {f:.4g}")
+    branches = "3 branches, f is inside the hysteresis window" if len(n_cl) == 3 else "single branch"
+    region = "the region admits bistability" if bistable else "monostable region (|Delta_tilde| <= sqrt(3)/2 kappa or g*Delta_tilde < 0)"
+    print(f"[params] uniform classical fixed points n = {np.array2string(n_cl, precision=4)}"
+            f"  ({branches}; {region})")
+    print(f"[cutoff] <n_i> = N*n = {n_site:.3f}  ->  sum_i <n_i> = {n_total:.3f}   vs   cutoff sum_i n_i <= {n_cut}")
+    print(f"[cutoff] incoherent pump background gamma_p/kappa = {n_pump:.3f} per site "
+            f"({L * n_pump:.3f} in total)")
+    if kappa <= 0:
+        print("[cutoff] !! kappa <= 0: gain exceeds loss, there is no normalisable steady state")
+    elif not ok:
+        print(f"[cutoff] !! the state does not fit in the basis: raise n_cut well above "
+                f"{n_total:.0f}, or lower f / raise kappa. The spectrum is a cutoff artefact.")
+    else:
+        print("[cutoff] ok: the classical state fits comfortably inside the basis")
+
+    return
 
 
 ###################################### LINDBLADIAN BUILDING ######################################    
