@@ -5,12 +5,12 @@ from math_funcs import *
 from basis_models import *
 
 
-
 class BoseHubbard:
     """Bose-Hubbard model with set parameter values
     """
 
-    def __init__(self, L, N, J, U, f, det, dissipation, gamma, n_local_max, M_list=[], kappa_list=[], pi_list=[], n_cut=None ): 
+    def __init__(self, L, N, J, U, config, driving, gamma, n_local_max,
+                N_pairs=None, M_list=None, kappa_list=None, pi_list=None, n_cut=None ): 
         """
         Args:
             N (int): the semiclassical parameter, 1/hbar_eff. It sets the scaling of the
@@ -24,11 +24,12 @@ class BoseHubbard:
         self.n_cut = N if n_cut is None else n_cut
         self.J = J
         self.U = U
-        self.f = f
-        self.det = det
-        self.dissipation = dissipation
+        self.driving = driving
+        self.config = config
         self.gamma = gamma
+
         self.n_local_max = n_local_max
+        self.N_pairs = N_pairs
         self.M_list = M_list
         self.kappa_list = kappa_list
         self.pi_list = pi_list
@@ -38,7 +39,7 @@ class BoseHubbard:
         Builds the Fock basis. Uses self.n_cut as the total-boson cutoff and self.n_local_max as the per-site cutoff.
         """
 
-        return build_bose_basis(self.L, self.n_cut, fixed_N=fixed_N, n_local_max=self.n_local_max)
+        return build_bose_basis(self.L, self.N, self.n_cut, fixed_N=fixed_N, n_local_max=self.n_local_max)
 
     def build_H(self, fock_basis):
         """Builds Bose-Hubbard Hamiltonian in Fock basis
@@ -54,8 +55,7 @@ class BoseHubbard:
         J = self.J
         U = self.U
         N = self.N
-        f = self.f
-        det = self.det
+        config = self.config
 
         dim = len(fock_basis)
         
@@ -77,15 +77,22 @@ class BoseHubbard:
         # on-site interaction U / N * n*(n-1))
         diag_vals = [U / N * sum(n * (n - 1) for n in state) for state in fock_basis]
 
-        # driving: f * sqrt(N) * (a_i + a_i^dagger)
-        for i in range(L):
-            a_i = a_list[i]
-            H += f * np.sqrt(N) * (a_i + a_i.conjugate().transpose())
+        H = H + sp.diags(diag_vals, dtype=complex, format='csr')
 
-        # driving: detuning: - det * a_i^dagger a_
-        diag_det = [- det * sum(n for n in state) for state in fock_basis]
+        if config.has_driving:
 
-        H = H + sp.diags(diag_vals, dtype=complex, format='csr') + sp.diags(diag_det, dtype=complex, format='csr')
+            f = self.driving[0]
+            det = self.driving[1]
+
+            # driving: f * sqrt(N) * (a_i + a_i^dagger)
+            for i in range(L):
+                a_i = a_list[i]
+                H += f * np.sqrt(N) * (a_i + a_i.conjugate().transpose())
+
+            # driving: detuning: - det * a_i^dagger a_
+            diag_det = [- det * sum(n for n in state) for state in fock_basis]
+
+            H = H + sp.diags(diag_det, dtype=complex, format='csr')
             
         return H
     
@@ -93,45 +100,40 @@ class BoseHubbard:
     def build_jump_ops(self, fock_basis):
         """Builds jump operators in Fock basis
 
-        Implements sum_i ( gamma_l D[b_i] + gamma_p D[b_i^dagger] + gamma_d D[n_i] ) rho.
-        The rates are read from self.gamma in this order:
-
-            "LOSS"       gamma = (gamma_l,)
-            "PUMPLOSS"   gamma = (gamma_l, gamma_p)
-            "DEPHASING"  gamma = (gamma_d,)
-            "FULL"       gamma = (gamma_l, gamma_p, gamma_d)
-
-        self.gamma holds the RATES themselves.
+        Implements
+        sum_i ( g_loss D[a_i] + g_pump D[a_i^dag] + g_deph D[n_i] + g_circ/N D[a_i^dag a_j] + g_bpl/N D[c_ij]) rho.
+        The rates are read from self.gamma in this order: gamma = (g_loss, g_pump, g_deph, g_circ, g_bpl)
 
         Returns:
             list of np.2darrays: list of jump operators on all sites
         """
 
-        if self.dissipation == "LOSS":
-            rates = {"loss": self.gamma[0]}
-        elif self.dissipation == "PUMPLOSS":
-            rates = {"loss": self.gamma[0], "pump": self.gamma[1]}
-        elif self.dissipation == "DEPHASING":
-            rates = {"deph": self.gamma[0]}
-        elif self.dissipation == "FULL":
-            rates = {"loss": self.gamma[0], "pump": self.gamma[1], "deph": self.gamma[2]}
-        else:
-            raise ValueError(f"unknown dissipation type: {self.dissipation!r} "
-                             f"(expected LOSS / PUMPLOSS / DEPHASING / FULL)")
+        gamma = list(self.gamma)
+        for idx in self.config.zero_gamma_idx:
+            gamma[idx] = 0
 
         jump_ops = []
+        a_i_list = [get_a_i(i, fock_basis) for i in range(self.L)]
+        a_i_dag_list = [a_i_list[i].conjugate().transpose() for i in range(self.L)]
 
         for i in range(self.L):
 
-            a_i = get_a_i(i, fock_basis)
-            a_i_dag = a_i.conjugate().transpose()
+            if gamma[0] != 0.0: #loss
+                jump_ops.append(a_i_list[i] * np.sqrt(gamma[0]))
 
-            if "loss" in rates:
-                jump_ops.append(a_i * np.sqrt(rates["loss"]))
-            if "pump" in rates:
-                jump_ops.append(a_i_dag * np.sqrt(rates["pump"]))
-            if "deph" in rates:
-                jump_ops.append((a_i_dag @ a_i) * np.sqrt(rates["deph"]))
+            if gamma[1] != 0.0: #pumping
+                jump_ops.append(a_i_dag_list[i] * np.sqrt(gamma[1]))
+
+            if gamma[2] != 0.0: #dephasing
+                jump_ops.append((a_i_dag_list[i] @ a_i_list[i]) * np.sqrt(gamma[2]))
+
+            if gamma[3] != 0.0: #directed circulation
+                j = (i + 1) % self.L 
+                jump_ops.append((a_i_dag_list[j] @ a_i_list[i]) * np.sqrt(gamma[3]/self.N))
+
+            if gamma[4] != 0.0: #bond phase locking
+                j = (i + 1) % self.L 
+                jump_ops.append((a_i_dag_list[i] + a_i_dag_list[j]) @ (a_i_list[i] - a_i_list[j]) * np.sqrt(gamma[4]/self.N))
 
         return jump_ops
 
@@ -147,17 +149,28 @@ class BoseHubbard:
             jump_ops_fock (np.2darray): jump operators in Fock basis
         """
 
-        no_driving = (self.f == 0.0)
+        config = self.config
 
-        kappa_list = self.kappa_list if self.kappa_list else np.arange(0, self.L, 1)
-        pi_list = self.pi_list if self.pi_list else None
+        def given(x):
+            return x is not None and len(x) > 0
 
+        kappa_list = self.kappa_list if given(self.kappa_list) else np.arange(self.L)
         kappa_set = set(kappa_list)
-        pi_set = set(pi_list) if pi_list is not None else None
 
-        if no_driving:
-            M_list = self.M_list if self.M_list else np.arange(-self.n_cut, self.n_cut+1, 1)
+        if config.has_parity:
+            pi_set = set(self.pi_list) if given(self.pi_list) else None
+        else:
+            if given(self.pi_list):
+                raise ValueError("pi_list given, but this config has no parity symmetry")
+            pi_set = None
+
+        if config.N_weak:
+            M_list = self.M_list if given(self.M_list) else np.arange(-self.n_cut, self.n_cut + 1)
             M_set = set(M_list)
+
+        N_pair_set = None
+        if config.N_strong and given(self.N_pairs):
+            N_pair_set = {(int(a), int(b)) for a, b in self.N_pairs}
 
         sectors = {}
 
@@ -166,17 +179,26 @@ class BoseHubbard:
 
             if ss_L.kappa not in kappa_set:
                 continue
+
             if pi_set is not None and ss_L.pi not in pi_set:
                 continue
 
-            if no_driving:
-                if ss_L.M not in M_set:
-                    continue
+            if config.N_weak and ss_L.M not in M_set:
+                continue
 
-            if no_driving:
-                sectors.setdefault((ss_L.M, ss_L.kappa, ss_L.pi), []).append(ss_L)
-            else:
-                sectors.setdefault((ss_L.kappa, ss_L.pi), []).append(ss_L)
+            if N_pair_set is not None and (ss_L.N_i, ss_L.N_j) not in N_pair_set:
+                continue
+
+            key = []
+            if config.N_weak:
+                key.append(ss_L.M)
+            elif config.N_strong:
+                key.extend((ss_L.N_i, ss_L.N_j))
+            key.append(ss_L.kappa)
+            if config.has_parity:
+                key.append(ss_L.pi)
+
+            sectors.setdefault(tuple(key), []).append(ss_L)
 
         dim = len(fock_basis)
         fock_to_idx = {state: i for i, state in enumerate(fock_basis)}
@@ -190,14 +212,8 @@ class BoseHubbard:
         # build selected blocks
         for sector_key, sector_states in sectors.items():
 
-            size = len(sector_states)
-
-            if no_driving:
-                M, kappa, pi = sector_key
-                print(f"Building sector [M={M}, kappa={kappa}, pi={pi}], #states: {size}")
-            else:
-                kappa, pi = sector_key
-                print(f"Building sector [kappa={kappa}, pi={pi}], #states: {size}")
+            print(f"Building sector {sector_key}, #states: {len(sector_states)}")
+            
 
             RHO = sp.hstack([ss.to_sparse(fock_to_idx, dim) for ss in sector_states], format='csc')
             LRHO = L_full @ RHO
@@ -220,7 +236,7 @@ def uniform_fixed_points(g, det_tilde, kappa, f):
     return np.sort(roots[np.abs(roots.imag) < 1e-9].real)
 
 
-def cutoff_report(L, N, J, U, f, det, gamma, n_cut=None):
+def cutoff_report(L, N, J, U, driving, gamma, n_cut=None):
     """Checks whether the Fock cutoff can hold the state the parameters ask for
 
     The drive is scaled as f*sqrt(N) and g = U*N is held fixed, so the classical density
@@ -228,10 +244,13 @@ def cutoff_report(L, N, J, U, f, det, gamma, n_cut=None):
     cut at sum_i n_i <= n_cut. If L * N * n exceeds n_cut, the computed spectrum is not the faithful spectrum of the model.
 
     Args:
-        L, N, J, U, f, det: as in BoseHubbard
+        L, N, J, U, driving: as in BoseHubbard
         gamma (tuple of floats): dissipation RATES
         n_cut (int, optional): total-boson cutoff of the basis. Defaults to N.
     """
+
+    f = driving[0]
+    det = driving[1]
 
     if n_cut is None:
         n_cut = N

@@ -45,7 +45,7 @@ class Lindbladian():
         return self
     
 
-def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, n_local_max=None, is_symmetric=False):
+def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, config, n_local_max=None, is_symmetric=False):
     """Builds full Bose-Hubbard model Lindbladian utilizing QuTip's liouvillian function
 
     Args:
@@ -76,7 +76,7 @@ def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_templ
     dim = len(basis)
 
     a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)]
-    H, c_ops = build_H_and_cops(a_list, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, dim)
+    H, c_ops = build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config)
 
     L_op = qt.liouvillian(H, c_ops)
 
@@ -85,7 +85,7 @@ def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_templ
     return lind
 
 
-def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, dissipation, c_ops_template, dim):
+def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config):
     """Builds Hamiltonian and dissipation operators
 
     Args:
@@ -94,47 +94,58 @@ def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, dissipation, c_ops_templ
         N (int): number of excitations
         J (float): jump coefficient
         U (float): energy coefficient
-        delta (float): detuning coefficient for -Delta * sum_j n_j
         f_drive (float): coherent drive amplitude f in H_D = f*sqrt(N)*sum_j (a_j^dag + a_j)
+        delta (float): detuning coefficient for -Delta * sum_j n_j
         gamma (tuple of floats): dissipation rates
-        dissipation_type (string): DEPHASING / LOSS / PUMPLOSS
-        c_ops_template (tuple of floats): per-site dissipation weights
-        dim (int): Hamiltonian dimenstion
+        config (Config): model configuration
         
     Returns:
         tuple of Qobjs: Hamiltonian and list of dissipation operators
     """
 
-    H = qt.Qobj(np.zeros((dim, dim), dtype=complex))
+    adag = [a.dag() for a in a_list]
+    n_list = [adag[i] * a_list[i] for i in range(L)]
 
-    # hopping term
-    for i in range(L):
+    H = 0 * n_list[0]
+
+    # hopping: L bonds for L > 2, a single bond for L = 2, none for L = 1
+    n_bonds = L if L > 2 else L - 1
+    for i in range(n_bonds):
         j = (i + 1) % L
-        H += -J * (a_list[i].dag() * a_list[j] + a_list[j].dag() * a_list[i])
+        H += -J * (adag[i] * a_list[j] + adag[j] * a_list[i])
 
-    # on-site interaction term
+    # on-site interaction: U/N * n(n-1)
     for i in range(L):
-        n_i = a_list[i].dag() * a_list[i]
-        H += U / N * n_i * (n_i - 1)
+        H += (U / N) * n_list[i] * (n_list[i] - 1)
 
-    # detuning term: -Delta * sum_j n_j
-    for i in range(L):
-        n_i = a_list[i].dag() * a_list[i]
-        H += -det * n_i
+    if config.has_driving:
+        for i in range(L):
+            H += f * np.sqrt(N) * (a_list[i] + adag[i])    # drive
+            H += -det * n_list[i]                          # detuning
 
-    # coherent drive term: H_D = f * sqrt(N) * sum_j (a_j^dag + a_j)
-    for i in range(L):
-        H += f * np.sqrt(N) * (a_list[i].dag() + a_list[i])
+    gamma = list(gamma)
+    for idx in config.zero_gamma_idx:
+        gamma[idx] = 0
 
     c_ops = []
     for i in range(L):
-        if dissipation == 'DEPHASING':
-            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i].dag() * a_list[i])
-        elif dissipation == 'LOSS':
-            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i])
-        elif dissipation == 'PUMPLOSS':
-            c_ops.append(c_ops_template[i] * np.sqrt(gamma[0]) * a_list[i])
-            c_ops.append(c_ops_template[i] * np.sqrt(gamma[1]) * a_list[i].dag())
+        j = (i + 1) % L
+
+        if gamma[0] != 0:  # loss
+            c_ops.append(np.sqrt(gamma[0]) * a_list[i])
+
+        if gamma[1] != 0:  # pump
+            c_ops.append(np.sqrt(gamma[1]) * adag[i])
+
+        if gamma[2] != 0:  # dephasing
+            c_ops.append(np.sqrt(gamma[2]) * n_list[i])
+
+        if gamma[3] != 0:  # directed circulation
+            c_ops.append(np.sqrt(gamma[3]/N) * adag[j] * a_list[i])
+
+        if gamma[4] != 0:  # bond phase locking
+            c_ops.append(np.sqrt(gamma[4]/N) * (adag[i] + adag[j]) * (a_list[i] - a_list[j]))
+
 
     return H, c_ops
 

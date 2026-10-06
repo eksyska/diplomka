@@ -47,10 +47,18 @@ class StateL:
     @property
     def kappa(self):
         return (self.ket.k - self.bra.k) % self.L
+
+    @property
+    def N_i(self):
+        return sum(self.ket.fock_states[0])
+
+    @property
+    def N_j(self):
+        return sum(self.bra.fock_states[0])
     
     @property
     def M(self):
-        return sum(self.ket.fock_states[0]) - sum(self.bra.fock_states[0])
+        return self.N_i - self.N_j
 
     def __repr__(self):
         return f"\nStateL(kappa={self.kappa}):\n ket: {self.ket} \n bra: {self.bra})"
@@ -63,6 +71,8 @@ class SymStateL:
         self.coeffs = np.asarray(coeffs, dtype=complex)
         self.kappa = kappa
         self.pi = pi
+        self.N_i = states[0].N_i
+        self.N_j = states[0].N_j
         self.M = states[0].M
 
     def __str__(self):
@@ -111,7 +121,7 @@ class SymStateL:
 
 ###################################### BASIS BUILDERS ######################################   
 
-def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
+def build_bose_basis(L, N, n_cut, fixed_N=True, n_local_max=None):
     """Builds Bose basis in Fock space
 
     Args:
@@ -133,7 +143,7 @@ def build_bose_basis(L, N, fixed_N=True, n_local_max=None):
         basis = [cfg for cfg in all_configs if sum(cfg) == N]
 
     else:
-        basis = [cfg for cfg in all_configs if sum(cfg) <= N]
+        basis = [cfg for cfg in all_configs if sum(cfg) <= n_cut]
 
     return basis
 
@@ -202,11 +212,12 @@ def build_translation_basis(fock_basis):
     return basis
 
 
-def build_sym_L_basis(fock_basis):
+def build_sym_L_basis(fock_basis, use_parity=True):
     """Builds translation and parity invariant basis in Lioville space
 
     Args:
         fock_basis (list of tuples): Fock basis states
+        use_parity (bool): Basis will be parity symmetric. Defaults to True
 
     Returns:
         list of SymStateL: translation and parity invariant basis states in Lioville space
@@ -214,6 +225,14 @@ def build_sym_L_basis(fock_basis):
 
     L = len(fock_basis[0])
     t_basis = build_translation_basis(fock_basis)
+
+    if not use_parity:
+        # no parity handling -> returns here, else continues with building parity symmetric Lioville basis
+        return [
+            SymStateL((StateL(ket, bra),), (1,), (ket.k - bra.k) % L, pi=None)
+            for ket in t_basis
+            for bra in t_basis
+        ]
 
     t_lookup = {_key(ts): ts for ts in t_basis}
 
