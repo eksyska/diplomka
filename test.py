@@ -37,14 +37,15 @@ U = -20
 f = 0.4 #driving
 det = 0.8 #detuning
 
-g_loss = 0.5 #loss
-g_pump = 0.2 #pumping  /  kappa = g_loss - g_pump
-g_deph = 0.0 #dephasing
-g_circ = 1.2 #directed circulation
-g_bpl = 0.3 #bond phase locking
+g_loss = 0.5 # loss
+g_pump = 0.2 # pumping  /  kappa = g_loss - g_pump
+g_deph = 0.0 # dephasing
+g_circ_p = 4 # directed circulation plus
+g_circ_m = 1 # directed circulation minus
+g_bpl = 0.3 # bond phase locking
 
 driving = (f, det)
-gamma = (g_loss, g_pump, g_deph, g_circ, g_bpl)
+gamma = (g_loss, g_pump, g_deph, g_circ_p, g_circ_m, g_bpl)
 
 config=CONFIGS["circulation"] #config encodes symmetries, driving and nullified gammas
 

@@ -103,8 +103,8 @@ def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config):
         tuple of Qobjs: Hamiltonian and list of dissipation operators
     """
 
-    adag = [a.dag() for a in a_list]
-    n_list = [adag[i] * a_list[i] for i in range(L)]
+    a_dag_list = [a.dag() for a in a_list]
+    n_list = [a_dag_list[i] * a_list[i] for i in range(L)]
 
     H = 0 * n_list[0]
 
@@ -112,7 +112,7 @@ def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config):
     n_bonds = L if L > 2 else L - 1
     for i in range(n_bonds):
         j = (i + 1) % L
-        H += -J * (adag[i] * a_list[j] + adag[j] * a_list[i])
+        H += -J * (a_dag_list[i] * a_list[j] + a_dag_list[j] * a_list[i])
 
     # on-site interaction: U/N * n(n-1)
     for i in range(L):
@@ -120,7 +120,7 @@ def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config):
 
     if config.has_driving:
         for i in range(L):
-            H += f * np.sqrt(N) * (a_list[i] + adag[i])    # drive
+            H += f * np.sqrt(N) * (a_list[i] + a_dag_list[i])    # drive
             H += -det * n_list[i]                          # detuning
 
     gamma = list(gamma)
@@ -135,16 +135,19 @@ def build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config):
             c_ops.append(np.sqrt(gamma[0]) * a_list[i])
 
         if gamma[1] != 0:  # pump
-            c_ops.append(np.sqrt(gamma[1]) * adag[i])
+            c_ops.append(np.sqrt(gamma[1]) * a_dag_list[i])
 
         if gamma[2] != 0:  # dephasing
             c_ops.append(np.sqrt(gamma[2]) * n_list[i])
 
-        if gamma[3] != 0:  # directed circulation
-            c_ops.append(np.sqrt(gamma[3]/N) * adag[j] * a_list[i])
+        if gamma[3] != 0:  # directed circulation plus
+            c_ops.append(np.sqrt(gamma[3]/N) * a_dag_list[j] * a_list[i])
 
-        if gamma[4] != 0:  # bond phase locking
-            c_ops.append(np.sqrt(gamma[4]/N) * (adag[i] + adag[j]) * (a_list[i] - a_list[j]))
+        if gamma[4] != 0:  # directed circulation minus
+            c_ops.append(np.sqrt(gamma[4]/N) * a_dag_list[i] * a_list[j])
+
+        if gamma[5] != 0:  # bond phase locking
+            c_ops.append(np.sqrt(gamma[5]/N) * (a_dag_list[i] + a_dag_list[j]) * (a_list[i] - a_list[j]))
 
 
     return H, c_ops

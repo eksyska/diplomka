@@ -7,7 +7,8 @@ class Config:
     N_strong: bool                      # has strong N symmetry
     has_parity: bool                    # has parity symmetry
     has_driving: bool                   # Hamiltonian includes driving
-    zero_gamma_idx: tuple[int, ...]     # indices of gamma coefficients that are zero; gamma = (g_loss, g_pump, g_deph, g_circ, g_bpl)
+    zero_gamma_idx: tuple[int, ...]     # indices of gamma coefficients that are zero;
+                                        # gamma = (g_loss, g_pump, g_deph, g_circ_p, g_circ_m, g_bpl)
 
 CONFIGS = {
     "pumploss_driving": Config(

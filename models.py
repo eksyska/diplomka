@@ -127,13 +127,17 @@ class BoseHubbard:
             if gamma[2] != 0.0: #dephasing
                 jump_ops.append((a_i_dag_list[i] @ a_i_list[i]) * np.sqrt(gamma[2]))
 
-            if gamma[3] != 0.0: #directed circulation
+            if gamma[3] != 0.0: #directed circulation plus
                 j = (i + 1) % self.L 
                 jump_ops.append((a_i_dag_list[j] @ a_i_list[i]) * np.sqrt(gamma[3]/self.N))
 
-            if gamma[4] != 0.0: #bond phase locking
+            if gamma[4] != 0.0: #directed circulation plus
                 j = (i + 1) % self.L 
-                jump_ops.append((a_i_dag_list[i] + a_i_dag_list[j]) @ (a_i_list[i] - a_i_list[j]) * np.sqrt(gamma[4]/self.N))
+                jump_ops.append((a_i_dag_list[i] @ a_i_list[j]) * np.sqrt(gamma[4]/self.N))
+
+            if gamma[5] != 0.0: #bond phase locking
+                j = (i + 1) % self.L 
+                jump_ops.append((a_i_dag_list[i] + a_i_dag_list[j]) @ (a_i_list[i] - a_i_list[j]) * np.sqrt(gamma[5]/self.N))
 
         return jump_ops
 
