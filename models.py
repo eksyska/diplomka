@@ -164,8 +164,6 @@ class BoseHubbard:
         if config.has_parity:
             pi_set = set(self.pi_list) if given(self.pi_list) else None
         else:
-            if given(self.pi_list):
-                raise ValueError("pi_list given, but this config has no parity symmetry")
             pi_set = None
 
         if config.N_weak:
@@ -184,7 +182,7 @@ class BoseHubbard:
             if ss_L.kappa not in kappa_set:
                 continue
 
-            if pi_set is not None and ss_L.pi not in pi_set:
+            if not config.has_parity and pi_set is not None and ss_L.pi not in pi_set:
                 continue
 
             if config.N_weak and ss_L.M not in M_set:
