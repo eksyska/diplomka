@@ -76,9 +76,10 @@ if symmetric_dissipation:
     all_z = csr_from_evals(block_evals, complex_spacing_ratios)
     plot_complex_ratios(all_z, show=True, map="scatter") 
     
+    
     # test code for comparing evals of full Lindbladian and evals by sectors
     """
-    L_full = bose_hubbard_L_full(L, N, J, U, f, det, gamma, "PUMPLOSS", (1,1,1), config, is_symmetric=False)
+    L_full = bose_hubbard_L_full(L, N, J, U, driving, gamma, config, n_cut, n_local_max=n_local_max)
     evals_full = L_full.L_op.eigenenergies()
     print("arrays equal:", compare_complex(clean_num_error(pooled), clean_num_error(evals_full)))
     """

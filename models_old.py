@@ -14,20 +14,16 @@ from basis_models import *
 class Lindbladian():
     """Lindbladian object"""
 
-    def __init__(self, L_op, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, basis, n_local_max=None, is_symmetric=False):
+    def __init__(self, L_op, L, N, J, U, driving, config, basis, n_local_max=None):
 
         self.L_op = L_op
         self.L = L
         self.N = N
         self.J = J
         self.U = U
-        self.f = f
-        self.det = det
-        self.gamma = gamma
-        self.dissip = dissipation_type
-        self.c_templ = c_ops_template
+        self.driving = driving
+        self.config = config
         self.n_local_max = n_local_max if n_local_max!=None else N
-        self.is_symmetric = is_symmetric
         self.basis = basis
         self.dim = L_op.shape[0]
 
@@ -45,7 +41,7 @@ class Lindbladian():
         return self
     
 
-def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, config, n_local_max=None, is_symmetric=False):
+def bose_hubbard_L_full(L, N, J, U, driving, gamma, config, n_cut, n_local_max=None):
     """Builds full Bose-Hubbard model Lindbladian utilizing QuTip's liouvillian function
 
     Args:
@@ -64,23 +60,21 @@ def bose_hubbard_L_full(L, N, J, U, f, det, gamma, dissipation_type, c_ops_templ
     Returns:
         Lindbladian: Lindbladian
     """
+    f, det = driving
 
     print(f"[*] building lindbladian for L={L}, N={N}, J={J}, U={U}, gamma={gamma}, "
-          f"delta={det}, f_drive={f}, symmetric={is_symmetric}")
+          f"delta={det}, f_drive={f}")
 
-    basis = build_bose_basis(L, N, fixed_N=False, n_local_max=n_local_max)
-    if is_symmetric:
-        #rebuild basis list into translation and parity basis states
-        basis = build_sym_basis(basis)
+    basis = build_bose_basis(L, N, n_cut=n_cut, fixed_N=False, n_local_max=n_local_max)
 
     dim = len(basis)
 
-    a_list = [build_a_i_sym(i, basis) for i in range(L)] if is_symmetric else [build_a_i(i, basis) for i in range(L)]
+    a_list = [build_a_i(i, basis) for i in range(L)]
     H, c_ops = build_H_and_cops(a_list, L, N, J, U, f, det, gamma, config)
 
     L_op = qt.liouvillian(H, c_ops)
 
-    lind = Lindbladian(L_op, L, N, J, U, f, det, gamma, dissipation_type, c_ops_template, basis, n_local_max, is_symmetric)
+    lind = Lindbladian(L_op, L, N, J, U, driving, config, basis, n_local_max)
 
     return lind
 
