@@ -17,7 +17,7 @@ CONFIGS = {
         N_strong=False,
         has_parity=True,
         has_driving=True,
-        zero_gamma_idx=(2,3,4)
+        zero_gamma_idx=(2,3,4,5)
     ),
 
     "circulation": Config(
