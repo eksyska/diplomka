@@ -7,6 +7,7 @@ from basis_models import *
 from models import *
 from models_old import *
 from outputs import *
+from BoseHubbard import BoseHubbard
 
 from config import *
 
@@ -26,13 +27,13 @@ c_ops_template1 = (1,0.7,1.3,1.5)
 ################## THE IMPORTANT SETTINGS ##################
 
 L = 3
-N = 5
+N = 12
 
-n_cut = 8
+n_cut = N
 n_local_max = n_cut
 
 J = 1
-U = -20
+U = -10
 
 f = 0.4 #driving
 det = 0.8 #detuning
@@ -40,8 +41,8 @@ det = 0.8 #detuning
 g_loss = 0.5 # loss
 g_pump = 0.2 # pumping  /  kappa = g_loss - g_pump
 g_deph = 0.0 # dephasing
-g_circ_p = 4 # directed circulation plus
-g_circ_m = 1 # directed circulation minus
+g_circ_p = 3.5 # directed circulation plus
+g_circ_m = 0.5 # directed circulation minus
 g_bpl = 0.3 # bond phase locking
 
 driving = (f, det)
@@ -58,13 +59,13 @@ time_start = time.time()
 if symmetric_dissipation:
 
     bh = BoseHubbard(L, N, J, U, config, driving, gamma, n_local_max=n_local_max, n_cut=n_cut,
-                     N_pairs=[], kappa_list=[0], pi_list=[])
+                    kappa_list=[0], pi_list=[], N_pairs=[(N,N)])
 
     # does the Fock cutoff actually hold the state these parameters ask for?
     cutoff_report(L, N, J, U, driving, gamma, n_cut=n_cut)
 
     fock_basis = bh.build_basis(fixed_N=False)
-    L_basis = build_sym_L_basis(fock_basis, use_parity=config.has_parity)
+    L_basis = bh.build_sym_basis(fock_basis)
 
     blocks = bh.build_L_blocks(fock_basis, L_basis)
 

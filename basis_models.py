@@ -82,40 +82,37 @@ class SymStateL:
     
     __repr__ = __str__
 
-    def to_sparse(self, fock_to_idx, dim):
-        """Vectorizes a SymStateL directly as a sparse dim^2 column
+    def to_sparse(self, fock_to_idx, dim, bra_fock_to_idx=None, dim_bra=None):
+        """Vectorizes a SymStateL as a sparse (dim * dim_bra) column (row-major).
 
         Args:
-            fock_to_idx (dict): maps a Fock basis state (tuple) to its index in fock_basis
-            dim (int): dimension of the Fock basis
-
-        Returns:
-            scipy.sparse.csc_matrix: vectorized SymStateL (sparse dim^2 column)
+            fock_to_idx (dict): ket Fock state -> index
+            dim (int): ket basis dimension
+            bra_fock_to_idx (dict, optional): bra Fock state -> index (default: same as ket)
+            dim_bra (int, optional): bra basis dimension (default: dim)
         """
+        if bra_fock_to_idx is None:
+            bra_fock_to_idx = fock_to_idx
+        if dim_bra is None:
+            dim_bra = dim
 
         rows, data = [], []
         for state_l, coeff_l in zip(self.states, self.coeffs):
-
             ket, bra = state_l.ket, state_l.bra
-
             for f_k, c_k in zip(ket.fock_states, ket.coeffs):
-
                 i = fock_to_idx[f_k]
                 ket_val = coeff_l * c_k
-
                 for f_b, c_b in zip(bra.fock_states, bra.coeffs):
-
-                    j = fock_to_idx[f_b]
-                    rows.append(i * dim + j)  # row-major flat index
+                    j = bra_fock_to_idx[f_b]
+                    rows.append(i * dim_bra + j)
                     data.append(ket_val * np.conj(c_b))
 
-        v = sp.coo_matrix((data, (rows, [0]*len(rows))), shape=(dim*dim, 1), dtype=complex).tocsc()
-
-        # normalize vector
-        norm = np.sqrt(np.sum(np.abs(v.data)**2))
+        v = sp.coo_matrix((data, (rows, [0] * len(rows))),
+                          shape=(dim * dim_bra, 1), dtype=complex).tocsc()
+        
+        norm = np.sqrt(np.sum(np.abs(v.data) ** 2))
         if norm > 1e-12:
             v = v / norm
-            
         return v
 
 
@@ -126,9 +123,10 @@ def build_bose_basis(L, N, n_cut, fixed_N=True, n_local_max=None):
 
     Args:
         L (int): number of sites
-        N (int): total number of excitaions
+        N (int): total number of excitations
+        n_cut (int): maximum number of excitations in a basis state (numerics)
         fixed_N (bool, optional): TRUE if all basis states have conserved # of excitations. Defaults to True.
-        n_local_max (int): site cutoff. Default to None.
+        n_local_max (int): site cutoff. Default to None
 
     Returns:
         list: basis states (int tuples)
@@ -140,12 +138,77 @@ def build_bose_basis(L, N, n_cut, fixed_N=True, n_local_max=None):
     all_configs = itertools.product(range(n_local_max+1), repeat=L)
 
     if fixed_N:
-        basis = [cfg for cfg in all_configs if sum(cfg) == N]
+        basis = build_fixed_N_basis(L, N, n_local_max=n_local_max)
 
     else:
         basis = [cfg for cfg in all_configs if sum(cfg) <= n_cut]
 
     return basis
+
+
+def build_fixed_N_basis(L, n, n_local_max=None):
+    """Builds Bose basis in Fock space with sum_i n_i = n exactly. Generated recursively.
+
+    Args:
+        L (int): number of sites
+        n (int): total number of excitations
+        n_local_max (int): site cutoff. Defaults to None
+
+    Returns:
+        list: basis states (int tuples)
+    """
+
+    cap = n if n_local_max is None else min(n_local_max, n)
+    basis = []
+
+    def rec(prefix, remaining, sites_left):
+
+        if sites_left == 1:
+            if remaining <= cap:
+                basis.append(tuple(prefix + [remaining]))
+            return
+        
+        lo = max(0, remaining - cap * (sites_left - 1))  # the rest must be able to hold the remainder
+        for x in range(lo, min(cap, remaining) + 1):
+            rec(prefix + [x], remaining - x, sites_left - 1)
+
+    rec([], n, L)
+
+    return basis
+
+
+def build_sym_L_basis_fixed_N(bases_by_N, N_pairs=None):
+    """Builds translation-symmetric (no parity) Liouville basis for only given N.
+
+    Args:
+        bases_by_N (dict): n -> fixed-N Fock basis (list of tuples)
+        N_pairs (iterable of (N_i, N_j)): pairs to build. Defaults to None (all pairs in bases_by_N).
+
+    Returns:
+        list of SymStateL, ket from the N_i basis and bra from the N_j basis
+    """
+
+    bases_by_N = {n: b for n, b in bases_by_N.items() if len(b) > 0}
+    if not bases_by_N:
+        return []
+
+    L = len(next(iter(bases_by_N.values()))[0]) # read L from the first Fock state of the first basis
+    t_bases = {n: build_translation_basis(b) for n, b in bases_by_N.items()}
+
+    if N_pairs is None or len(N_pairs) == 0:
+        pairs = [(a, b) for a in t_bases for b in t_bases]
+    else:
+        pairs = [(int(a), int(b)) for a, b in N_pairs if int(a) in t_bases and int(b) in t_bases]
+
+    sym_statesL = []
+
+    for a, b in pairs:
+        for ket in t_bases[a]:
+            for bra in t_bases[b]:
+                kappa = (ket.k - bra.k) % L
+                sym_statesL.append(SymStateL((StateL(ket, bra),), (1,), kappa, pi=None))
+                
+    return sym_statesL
 
 
 def build_ket_orbits(fock_basis):
