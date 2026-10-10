@@ -1,5 +1,3 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import time
 from qm_statistics import *
 from plot import *
@@ -7,6 +5,8 @@ from basis_models import *
 from models import *
 from models_old import *
 from outputs import *
+from param_diag import *
+
 from BoseHubbard import BoseHubbard
 
 from config import *
