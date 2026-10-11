@@ -74,8 +74,8 @@ if symmetric_dissipation:
 
     plot_spectrum(pooled)
 
-    all_z = csr_from_evals(block_evals, complex_spacing_ratios)
-    plot_complex_ratios(all_z, show=True, map="scatter") 
+    all_z, slices = csr_from_evals(block_evals, complex_spacing_ratios, n_slices=3)
+    plot_complex_ratios_slices(all_z, slices) 
     
     
     # test code for comparing evals of full Lindbladian and evals by sectors

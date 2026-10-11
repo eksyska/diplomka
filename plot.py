@@ -92,6 +92,73 @@ def plot_complex_ratios(z, show=True, path=None, real=False, map="color"):
             plt.savefig(f"figs/{subfolder}{timestamp}.png")
 
 
+def plot_complex_ratios_slices(z, slices, show=True, bins=40, map="scatter", show_total=True):
+    """Plots complex spacing ratios of each eigenvalue slice in its own row: the complex plane plot
+    and the |z| and arg(z) histograms. The histograms of the total are drawn in gray for comparison
+
+    Args:
+        z (complex float array): all complex spacing ratios
+        slices (list): slice dicts from slice_csr / csr_from_evals(..., n_slices=...)
+        bins (int, optional): # of histogram bins. Defaults to 40.
+        map (str, optional): "scatter" or "color" (KDE density) for the complex plane plot. Defaults to "scatter".
+        show_total (bool, optional): add a last row with all ratios together. Defaults to True.
+    """
+
+    rows = [(f"slice {i+1}: [{s['range'][0]:.2f}, {s['range'][1]:.2f}]", s["z"]) for i, s in enumerate(slices)]
+    if show_total:
+        rows.append(("total", z))
+
+    fig, ax = plt.subplots(len(rows), 3, figsize=(12, 3*len(rows)), sharex="col", sharey="col", squeeze=False)
+
+    grid_lim = 1.2
+
+    for a, (label, z_i) in zip(ax, rows):
+
+        if map == "scatter":
+            a[0].scatter(z_i.real, z_i.imag, s=1, alpha=0.5)
+
+        elif map == "color" and len(z_i) > 2:
+            kde = gaussian_kde(np.vstack([z_i.real, z_i.imag]), bw_method=0.15)
+            xi, yi = np.mgrid[-grid_lim:grid_lim:300j, -grid_lim:grid_lim:300j]
+            zi = kde(np.vstack([xi.ravel(), yi.ravel()])).reshape(xi.shape)
+            a[0].pcolormesh(xi, yi, zi, cmap='coolwarm', shading='gouraud')
+
+        a[0].add_artist(plt.Circle((0, 0), 1, color='gray', fill=False, linestyle='--'))
+        a[0].set_xlim(-grid_lim, grid_lim)
+        a[0].set_ylim(-grid_lim, grid_lim)
+        a[0].set_aspect('equal')
+        a[0].set_ylabel(label)
+
+        if len(z_i):
+            a[0].set_title(f"n = {len(z_i)}, <|r|> = {np.abs(z_i).mean():.3f}, "
+                           f"-<cos θ> = {-np.cos(np.angle(z_i)).mean():.3f}", fontsize=9)
+
+        if show_total and z_i is not z:
+            a[1].hist(np.abs(z), bins=bins, range=(0, 1), density=True, histtype="step", color="gray", label="total", zorder=3)
+            a[2].hist(np.angle(z), bins=bins, range=(-np.pi, np.pi), density=True, histtype="step", color="gray", label="total", zorder=3)
+
+        a[1].hist(np.abs(z_i), bins=bins, range=(0, 1), density=True, color='C1', alpha=0.7)
+        a[2].hist(np.angle(z_i), bins=bins, range=(-np.pi, np.pi), density=True, color='C2', alpha=0.7)
+        a[1].set_ylabel("P(|z|)")
+        a[2].set_ylabel("P(arg z)")
+
+    ax[0, 1].set_title("Histogram of |z|")
+    ax[0, 2].set_title("Histogram of arg(z)")
+    if show_total and len(rows) > 1:
+        ax[0, 2].legend(fontsize=7)
+
+    ax[-1, 0].set_xlabel("Re z")
+    ax[-1, 1].set_xlabel("|z|")
+    ax[-1, 2].set_xlabel("arg(z)")
+
+    plt.tight_layout()
+
+    if show:
+        plt.show()
+
+    return fig
+
+
 def plot_NN_spacings(s_norm, funcs=[], bins=50, range=(0,3)):
     """Plots normalized nearest neighbour spacings for complex eigenvalues
 
