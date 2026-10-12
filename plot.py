@@ -93,12 +93,12 @@ def plot_complex_ratios(z, show=True, path=None, real=False, map="color"):
 
 
 def plot_complex_ratios_slices(z, slices, show=True, bins=40, map="scatter", show_total=True):
-    """Plots complex spacing ratios of each eigenvalue slice in its own row: the complex plane plot
-    and the |z| and arg(z) histograms. The histograms of the total are drawn in gray for comparison
+    """Plots complex spacing ratios of each eigenvalue slice in its own row.
+    The complex plane plot and the |z| and arg(z) histograms. The histograms of the total are drawn in gray for comparison
 
     Args:
         z (complex float array): all complex spacing ratios
-        slices (list): slice dicts from slice_csr / csr_from_evals(..., n_slices=...)
+        slices (list): slice dicts
         bins (int, optional): # of histogram bins. Defaults to 40.
         map (str, optional): "scatter" or "color" (KDE density) for the complex plane plot. Defaults to "scatter".
         show_total (bool, optional): add a last row with all ratios together. Defaults to True.
