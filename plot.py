@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 from qm_statistics import *
 from datetime import datetime
 from scipy.stats import gaussian_kde
+from scipy import ndimage
 
 
 
@@ -25,6 +26,7 @@ def plot_level_density (spacings, funcs=[], bins=50, range=(0,3)):
 
     plt.show()
 
+
 def plot_complex_ratios(z, show=True, path=None, real=False, map="color"):
     """Plots complex spacing ratio statistics in the complex plane and both the absolute value |z| and arg(z) dependent histograms
 
@@ -40,12 +42,7 @@ def plot_complex_ratios(z, show=True, path=None, real=False, map="color"):
             ax[0].scatter(z.real, z.imag, s=1, alpha=0.5)
 
         elif map == "color":
-            points = np.vstack([z.real, z.imag])
-            kde = gaussian_kde(points, bw_method=0.15)
-
-            grid_lim = 1.2
-            xi, yi = np.mgrid[-grid_lim:grid_lim:300j, -grid_lim:grid_lim:300j]
-            zi = kde(np.vstack([xi.ravel(), yi.ravel()])).reshape(xi.shape)
+            xi, yi, zi = kde_grid(z)
 
             im = ax[0].pcolormesh(xi, yi, zi, cmap='coolwarm', shading='gouraud')
             plt.colorbar(im, ax=ax[0], label='Density')
@@ -118,9 +115,7 @@ def plot_complex_ratios_slices(z, slices, show=True, bins=40, map="scatter", sho
             a[0].scatter(z_i.real, z_i.imag, s=1, alpha=0.5)
 
         elif map == "color" and len(z_i) > 2:
-            kde = gaussian_kde(np.vstack([z_i.real, z_i.imag]), bw_method=0.15)
-            xi, yi = np.mgrid[-grid_lim:grid_lim:300j, -grid_lim:grid_lim:300j]
-            zi = kde(np.vstack([xi.ravel(), yi.ravel()])).reshape(xi.shape)
+            xi, yi, zi = kde_grid(z_i, grid_lim)
             a[0].pcolormesh(xi, yi, zi, cmap='coolwarm', shading='gouraud')
 
         a[0].add_artist(plt.Circle((0, 0), 1, color='gray', fill=False, linestyle='--'))
@@ -209,3 +204,29 @@ def plot_spectrum(evals):
     plt.show()
 
 
+def kde_grid(z, grid_lim=1.2, n_grid=300, bw=0.15):
+    """Fast (binned) gaussian KDE of complex points on a square grid
+
+    Equivalent to gaussian_kde(..., bw_method=bw) evaluated on the grid, but instead of summing the kernels of all points at every grid point, the points are binned into a 2D histogram on the grid which is then smoothed by a gaussian filter of the same width
+
+    Args:
+        z (complex np.ndarray): points in the complex plane
+        grid_lim (float, optional): grid spans [-grid_lim, grid_lim] in both directions. Defaults to 1.2.
+        n_grid (int, optional): # of grid points along each axis. Defaults to 300.
+        bw (float, optional): bandwidth factor as in gaussian_kde bw_method. Defaults to 0.15.
+
+    Returns:
+        tuple: xi, yi grid coordinates and zi density (as from np.mgrid)
+    """
+
+    centers = np.linspace(-grid_lim, grid_lim, n_grid)
+    dx = centers[1] - centers[0]
+    edges = np.append(centers - dx/2, centers[-1] + dx/2)
+
+    hist, _, _ = np.histogram2d(z.real, z.imag, bins=[edges, edges])
+    sigma = bw * np.array([z.real.std(ddof=1), z.imag.std(ddof=1)]) / dx
+    zi = ndimage.gaussian_filter(hist, sigma, mode="constant") / (len(z) * dx**2)
+
+    xi, yi = np.meshgrid(centers, centers, indexing="ij")
+    
+    return xi, yi, zi
