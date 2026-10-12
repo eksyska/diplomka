@@ -24,48 +24,31 @@ def evals_from_blocks(blocks):
     block_evals = {label: np.linalg.eigvals(block) for label, block in blocks.items()}
     return block_evals
 
-def pool_evals(block_evals, kappa=_ALL, M=_ALL):
-    """Concatenate eigenvalues from blocks matching the given sector filters
 
-    Usually the block eigenvalues are already filtered so there is no need to filter again
+def pool_evals(block_evals):
+    """Concatenate eigenvalues from blocks
 
     Args:
         block_evals (dict): label -> eigenvalues
-        kappa (int or list or _Sentinel): ket-bra translation match filter. Defaults to _ALL (for all sectors)
-        M (int or list or _Sentinel): particle number filter. Defaults to _ALL (for all sectors)
 
     Returns:
         np.ndarray: concatenated eigenvalues
     """
 
-    evals = []
+    # dict -> list -> concatenate
+    return np.concatenate(list(block_evals.values()))
 
-    for label, v in block_evals.items():
 
-        if isinstance(label, tuple) and len(label) == 3:
-            k, p, m = label
-        else:
-            k, p, m = _ALL, _ALL, label
-
-        if (kappa is _ALL or k == kappa) and (M is _ALL or m == M):
-            evals.append(v)
-
-    if not evals:
-        raise ValueError(f"no blocks matched kappa={kappa}, M={M}")
-    
-    return np.concatenate(evals)
-
-def csr_from_evals(block_evals, csr_func, n_slices=None, slice_by="abs", slice_mode="quantile", slice_per_block=False):
+def csr_from_evals(block_evals, csr_func, n_slices=None, slice_by="abs", slice_mode="quantile"):
     """Compute complex spacing ratios separately per block and pool results
 
     Args:
         block_evals (dict): label -> eigenvalues
         csr_func (callable): function that takes eigenvalues and returns complex spacing ratios,
             for slicing it has to accept return_centers=True and return (ratios, centers)
-        n_slices (int, optional): number of eigenvalue slices (3-5 is reasonable). Defaults to None (no slicing)
-        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|, "imag" for |Im λ|. Defaults to "abs"
+        n_slices (int, optional): number of eigenvalue slices. Defaults to None (no slicing)
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
         slice_mode (str, optional): "quantile" for slices with equal number of ratios, "linear" for slices of equal width. Defaults to "quantile"
-        slice_per_block (bool, optional): slice each block separately and pool the slices. Defaults to False
 
     Returns:
         np.ndarray: pooled complex spacing ratios (if n_slices is None)
@@ -74,7 +57,6 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, slice_by="abs", slice_m
 
     all_ratios = []
     all_centers = []
-    block_slices = []
 
     for evals in block_evals.values():
 
@@ -82,15 +64,15 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, slice_by="abs", slice_m
             continue
 
         if n_slices is None:
+            # compute statistics for all evals in a block together
             result = csr_func(evals)
             ratios = (result[0] if isinstance(result, tuple) else result).ravel()
+
         else:
+            # compute statistics separately by slicing the block evals
             ratios, centers = csr_func(evals, return_centers=True)
             ratios = ratios.ravel()
             all_centers.append(centers.ravel())
-
-            if slice_per_block:
-                block_slices.append(slice_csr(ratios, centers.ravel(), n_slices, slice_by=slice_by, slice_mode=slice_mode))
 
         all_ratios.append(ratios)
 
@@ -100,25 +82,25 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, slice_by="abs", slice_m
     pooled = np.concatenate(all_ratios)
 
     if n_slices is None:
+
         print(f"pooled <|r|> = {np.abs(pooled).mean():.4f}")
         print(f"pooled -<cos(arg(z))> = {-np.cos(np.angle(pooled)).mean():.4f}")
+
         return pooled
 
-    if slice_per_block:
-        slices = merge_slices(block_slices)
-    else:
-        centers = np.concatenate(all_centers)
-        slices = slice_csr(pooled, centers, n_slices, slice_by=slice_by, slice_mode=slice_mode)
+    # n_slices is not None:
 
-    mode = slice_mode + (" per block" if slice_per_block else "")
-    print_csr_slices(pooled, slices, slice_by=slice_by, slice_mode=mode)
+    centers = np.concatenate(all_centers)
+    slices = slice_csr(pooled, centers, n_slices, slice_by=slice_by, slice_mode=slice_mode)
+
+    print_csr_slices(pooled, slices, slice_by=slice_by, slice_mode=slice_mode)
+
     return pooled, slices
 
 
 _SLICE_KEYS = {
     "abs":  (lambda x: np.abs(x),      "|lam|"),
     "real": (lambda x: np.abs(x.real), "|Re lam|"),
-    "imag": (lambda x: np.abs(x.imag), "|Im lam|"),
 }
 
 # reference values (<|r|>, -<cos θ>) of the complex spacing ratios
@@ -127,15 +109,16 @@ CSR_REF = {
     "Poisson": (2/3, 0.0),
 }
 
+
 def slice_csr(z, centers, n_slices, slice_by="abs", slice_mode="quantile"):
     """Split complex spacing ratios into slices by the size of the eigenvalue they belong to
 
     Args:
         z (complex np.ndarray): complex spacing ratios
         centers (complex np.ndarray): eigenvalue for which each ratio was computed (same length as z)
-        n_slices (int): number of slices
-        slice_by (str, optional): "abs", "real" or "imag" (see csr_from_evals). Defaults to "abs"
-        slice_mode (str, optional): "quantile" or "linear" (see csr_from_evals). Defaults to "quantile"
+        n_slices (int): number of eigenvalue slices
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
+        slice_mode (str, optional): "quantile" for slices with equal number of ratios, "linear" for slices of equal width. Defaults to "quantile"
 
     Returns:
         list: one dict per slice with keys "range" (lo, hi), "z", "n", "mean_abs", "mean_cos"
@@ -155,32 +138,18 @@ def slice_csr(z, centers, n_slices, slice_by="abs", slice_mode="quantile"):
 
     return [_slice_dict(z[idx == i], (edges[i], edges[i+1])) for i in range(n_slices)]
 
-def merge_slices(slice_lists):
-    """Pool slices from several sectors / runs, the i-th slices of all lists are joined together
-
-    Useful when each sector was sliced separately (by its own edges), e.g. by separate
-    csr_from_evals(..., n_slices=n) calls for different kappa or M
-
-    Args:
-        slice_lists (list): lists of slice dicts (from slice_csr / csr_from_evals), all with the same number of slices
-
-    Returns:
-        list: pooled slice dicts, "range" is the envelope of the pooled slice ranges (so neighbouring slices can overlap)
-    """
-
-    n_slices = {len(sl) for sl in slice_lists}
-    if len(n_slices) != 1:
-        raise ValueError(f"all slice lists must have the same number of slices, got {sorted(n_slices)}")
-
-    merged = []
-    for parts in zip(*slice_lists):
-        z_i = np.concatenate([s["z"] for s in parts])
-        rng = (min(s["range"][0] for s in parts), max(s["range"][1] for s in parts))
-        merged.append(_slice_dict(z_i, rng))
-
-    return merged
 
 def _slice_dict(z, rng):
+    """Builds dictionary of complex spacing ratios of one slice together with their statistics
+
+    Args:
+        z (complex np.ndarray): complex spacing ratios
+        rng (tuple): (lo, hi) eigenvalue size range of the slice
+
+    Returns:
+        dict: "range" (lo, hi), "z" ratios, "n" number of ratios, "mean_abs" <|r|>, "mean_cos" -<cos(arg z)> (both np.nan for an empty slice)
+    """
+
     return {
         "range": rng,
         "z": z,
@@ -189,8 +158,16 @@ def _slice_dict(z, rng):
         "mean_cos": -np.cos(np.angle(z)).mean() if len(z) else np.nan,
     }
 
+
 def print_csr_slices(z, slices, slice_by="abs", slice_mode="quantile"):
-    """Print a table of <|r|> and -<cos th> per slice together with the total and reference values"""
+    """Print a table of <|r|> and -<cos th> per slice together with the total and reference values
+
+    Args:
+        z (complex np.ndarray): all complex spacing ratios
+        slices (list): slice dicts
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
+        slice_mode (str, optional): "quantile" for slices with equal number of ratios, "linear" for slices of equal width. Defaults to "quantile"
+    """
 
     label = _SLICE_KEYS[slice_by][1]
     print(f"complex spacing ratios sliced by {label} ({slice_mode}, {len(slices)} slices)")
