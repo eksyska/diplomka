@@ -62,7 +62,8 @@ if symmetric_dissipation:
                     kappa_list=[0], pi_list=[], N_pairs=[(N,N)])
 
     # does the Fock cutoff actually hold the state these parameters ask for?
-    cutoff_report(L, N, J, U, driving, gamma, n_cut=n_cut)
+    if not config.N_strong:
+        cutoff_report(L, N, J, U, driving, gamma, n_cut=n_cut)
 
     fock_basis = bh.build_basis(fixed_N=False)
     L_basis = bh.build_sym_basis(fock_basis)
