@@ -154,6 +154,37 @@ def plot_complex_ratios_slices(z, slices, show=True, bins=40, map="scatter", sho
     return fig
 
 
+def plot_csr_window(window, show=True):
+    """Plots <|r|> and -<cos θ> of the sliding window statistics against the window center,
+    with horizontal reference lines for GinUE (chaos) and Poisson (regular)
+
+    Args:
+        window (dict): window dict from window_csr / csr_from_evals(..., width=...)
+    """
+
+    xlabel = {"abs": "|λ|", "real": "|Re λ|"}[window["slice_by"]]
+    fig, ax = plt.subplots(2, 1, figsize=(7, 5), sharex=True)
+
+    for a, key, ylabel, ref_idx, c in [(ax[0], "mean_abs", "<|r|>", 0, "C0"), (ax[1], "mean_cos", "-<cos θ>", 1, "C1")]:
+        a.plot(window["center"], window[key], ".-", color=c)
+
+        for (name, ref), ls in zip(CSR_REF.items(), ["--", ":"]):
+            a.axhline(ref[ref_idx], color="gray", ls=ls, lw=1, label=name)
+
+        a.set_ylabel(ylabel)
+        a.legend(fontsize=8)
+
+    ax[0].set_title(f"Sliding window statistics (width {window['width']:g}, step {window['step']:g})")
+    ax[1].set_xlabel(f"window center {xlabel}")
+
+    plt.tight_layout()
+
+    if show:
+        plt.show()
+
+    return fig
+
+
 def plot_NN_spacings(s_norm, funcs=[], bins=50, range=(0,3)):
     """Plots normalized nearest neighbour spacings for complex eigenvalues
 
