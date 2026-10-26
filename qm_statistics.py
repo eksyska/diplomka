@@ -59,7 +59,8 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
         n_slices (int, optional): number of eigenvalue slices of equal width. Defaults to None (no slicing)
         width (float or str, optional): width of the sliding window, "auto" to choose it from min_count (see window_csr). Defaults to None (no window)
         step (float, optional): step of the sliding window center. Defaults to None (width/4)
-        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|, "rank" for the rank of |λ|
+            (see _SLICE_KEYS). Defaults to "abs"
         min_count (int, optional): required number of ratios in a window, windows with fewer give np.nan. Defaults to 200
         frac (float, optional): keep only the ratios of the smallest frac (0-1] of eigenvalues by slice_by size
             (over all blocks together), applied before slicing / windowing. Defaults to None (all ratios)
@@ -133,9 +134,12 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
     return pooled, window
 
 
+# "rank" is the fraction of eigenvalues with a smaller |λ| (0 to 1): a window of fixed width holds the same number
+# of ratios everywhere, and spectra of different shapes (data vs GinUE disk) become comparable along the axis
 _SLICE_KEYS = {
     "abs":  (lambda x: np.abs(x),      "|lam|"),
     "real": (lambda x: np.abs(x.real), "|Re lam|"),
+    "rank": (lambda x: np.argsort(np.argsort(np.abs(x))) / max(len(x) - 1, 1), "rank of |lam|"),
 }
 
 # reference values (<|r|>, -<cos θ>) of the complex spacing ratios
@@ -153,7 +157,8 @@ def slice_csr(z, centers, n_slices, slice_by="abs"):
         z (complex np.ndarray): complex spacing ratios
         centers (complex np.ndarray): eigenvalue for which each ratio was computed (same length as z)
         n_slices (int): number of eigenvalue slices
-        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|, "rank" for the rank of |λ|.
+            Defaults to "abs"
 
     Returns:
         list: one dict per slice with keys "range" (lo, hi), "z", "n", "mean_abs", "mean_cos"
@@ -181,13 +186,15 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
         width (float or str): window width, "auto" for the smallest width with at least min_count
             ratios in every window of the spectrum bulk (see auto_window_width)
         step (float, optional): step of the window center. Defaults to None (width/4)
-        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|. Defaults to "abs"
+        slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|, "rank" for the rank of |λ|.
+            Defaults to "abs"
         min_count (int, optional): windows with fewer ratios give np.nan. Defaults to 200
         edge_frac (float, optional): fraction of ratios at the spectrum edges ignored by width="auto". Defaults to 0.05
 
     Returns:
         dict: "center" window centers, "n" number of ratios, "mean_abs" <|r|>, "mean_cos" -<cos θ> (arrays),
-            "width", "step", "slice_by"
+            "width", "step", "slice_by", "key_max" largest eigenvalue size (for a normalized x axis),
+            "key", "z", "evals" eigenvalue sizes, ratios and their eigenvalues sorted by size (to select the ratios of any window)
     """
 
     key = _SLICE_KEYS[slice_by][0](np.asarray(centers))
@@ -217,7 +224,8 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
     mean_cos[n < min_count] = np.nan
 
     return {"center": mid, "n": n, "mean_abs": mean_abs, "mean_cos": mean_cos,
-            "width": width, "step": step, "slice_by": slice_by}
+            "width": width, "step": step, "slice_by": slice_by, "key_max": key[-1],
+            "key": key, "z": z[order], "evals": np.asarray(centers)[order]}
 
 
 def auto_window_width(key, min_count, edge_frac=0.05, n_test=500):
