@@ -48,7 +48,12 @@ g_bpl = 0.3 # bond phase locking
 driving = (f, det)
 gamma = (g_loss, g_pump, g_deph, g_circ_p, g_circ_m, g_bpl)
 
-config=CONFIGS["circulation"] #config encodes symmetries, driving and nullified gammas
+config_name = "circulation"
+config = CONFIGS[config_name] #config encodes symmetries, driving and nullified gammas
+
+save_evals = True # store the eigenvalues of all blocks to evals_path
+load_evals = True # if evals_path exists, load the eigenvalues from it instead of computing them
+evals_path = f"data/evals/{config_name}_L{L}_N{N}_ncut{n_cut}_J{J}_U{U}_f{f}_det{det}_gamma{gamma}.npz"
 
 ############################################################
 
@@ -59,23 +64,28 @@ time_start = time.time()
 if symmetric_dissipation:
 
     bh = BoseHubbard(L, N, J, U, config, driving, gamma, n_local_max=n_local_max, n_cut=n_cut,
-                    kappa_list=[0], pi_list=[], N_pairs=[(N,N)])
+                    kappa_list=[0,1,2], pi_list=[], N_pairs=[(N,N)])
 
     # does the Fock cutoff actually hold the state these parameters ask for?
     if not config.N_strong:
         cutoff_report(L, N, J, U, driving, gamma, n_cut=n_cut)
 
-    fock_basis = bh.build_basis(fixed_N=False)
-    L_basis = bh.build_sym_basis(fock_basis)
+    if load_evals and os.path.exists(evals_path):
+        block_evals, _ = load_block_evals(evals_path)
+        print(f"eigenvalues loaded from {evals_path}")
 
-    blocks = bh.build_L_blocks(fock_basis, L_basis)
+    else:
+        fock_basis = bh.build_basis(fixed_N=False)
+        L_basis = bh.build_sym_basis(fock_basis)
 
-    block_evals = evals_from_blocks(blocks)
+        blocks = bh.build_L_blocks(fock_basis, L_basis)
+
+        block_evals = evals_from_blocks(blocks, save_path=evals_path if save_evals else None)
     pooled = pool_evals(block_evals)
     
     plot_spectrum(pooled)
 
-    all_z = csr_from_evals(block_evals, complex_spacing_ratios, frac=0.3) 
+    all_z = csr_from_evals(block_evals, complex_spacing_ratios, frac=1) 
     plot_complex_ratios(all_z)
     
     # test code for comparing evals of full Lindbladian and evals by sectors

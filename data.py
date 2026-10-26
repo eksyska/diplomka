@@ -102,8 +102,7 @@ def _evals_file(folder, U, g):
 def save_point_evals(folder, U, g, block_evals, params):
     """Stores the eigenvalues of all blocks of one grid point
 
-    The file is written under a temporary name and renamed afterwards, so an interrupted
-    run never leaves a half-written .npz file that would look finished.
+    The file is written atomically, see save_block_evals.
 
     Args:
         folder (str): folder of the scan
@@ -112,38 +111,17 @@ def save_point_evals(folder, U, g, block_evals, params):
         params (dict): model parameters stored with the eigenvalues
     """
 
-    os.makedirs(folder, exist_ok=True)
-    path = _evals_file(folder, U, g)
-    tmp = path + ".tmp"
-
-    labels = list(block_evals.keys())
-
-    with open(tmp, "wb") as fh:
-        np.savez(fh,
-                 evals=np.concatenate([block_evals[k] for k in labels]),
-                 block_sizes=np.array([len(block_evals[k]) for k in labels]),
-                 sectors=np.array([repr(k) for k in labels]),
-                 U=float(U), g_circ_p=float(g),
-                 **params)
-        fh.flush()
-        os.fsync(fh.fileno())
-
-    os.replace(tmp, path)
+    save_block_evals(_evals_file(folder, U, g), block_evals, {"U": float(U), "g_circ_p": float(g), **params})
 
 
 def load_point_evals(path):
     """Loads one grid point stored by save_point_evals
 
     Returns:
-        (dict, dict): sector label (str) -> eigenvalues, and the stored parameters (incl. U, g_circ_p)
+        (dict, dict): sector label (tuple) -> eigenvalues, and the stored parameters (incl. U, g_circ_p)
     """
 
-    with np.load(path) as data:
-        splits = np.cumsum(data["block_sizes"])[:-1]
-        block_evals = dict(zip(data["sectors"].tolist(), np.split(data["evals"], splits)))
-        params = {k: data[k].item() for k in data.files if k not in ("evals", "block_sizes", "sectors")}
-
-    return block_evals, params
+    return load_block_evals(path)
 
 
 def load_done_evals(folder):
@@ -497,10 +475,10 @@ plot_scan([
 # scans with stored eigenvalues (save_evals = True)
 
 evals_dirs = [
-    "data/scan_U_gcircp_circulation_L4_N5_J1_gm0.0_evals",
+    "data/scan_U_gcircp_circulation_L3_N11_J1_gm0.0_evals",
 ]
 
-frac = 0.1 # fraction of the eigenvalues with the smallest |λ| used for the statistics
+frac = 0.2 # fraction of the eigenvalues with the smallest |λ| used for the statistics
 
 # full spectrum of the same scans for comparison
 #plot_scan([d.removesuffix("_evals") + ".csv" for d in evals_dirs])

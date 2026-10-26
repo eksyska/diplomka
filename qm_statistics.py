@@ -1,27 +1,34 @@
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.neighbors import NearestNeighbors
-from scipy.spatial import cKDTree, KDTree
+from scipy.spatial import cKDTree
 from scipy import stats, spatial
 import mpmath as mp
 
 from math_funcs import *
 from math_funcs import _ALL
 from models import *
+from outputs import *
 
 ########################## BLOCK SPLITTING ##########################
 
-def evals_from_blocks(blocks):
+def evals_from_blocks(blocks, save_path=None):
     """Diagonalize prebuilt blocks
 
     Args:
         blocks (dict): label -> np.ndarray block matrix
+        save_path (str, optional): .npz file to store the eigenvalues with their block labels to
+            (see save_block_evals, load with load_block_evals). Defaults to None (not stored)
 
     Returns:
         dict: label -> np.ndarray eigenvalues
     """
     
     block_evals = {label: np.linalg.eigvals(block) for label, block in blocks.items()}
+
+    if save_path is not None:
+        save_block_evals(save_path, block_evals, {})
+        print(f"eigenvalues stored to {save_path}")
+
     return block_evals
 
 
