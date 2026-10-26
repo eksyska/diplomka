@@ -6,7 +6,10 @@ __pycache__/
 
 # Build/output
 figs/
-data/
+# contents of data/ instead of data/ itself, git cannot re-include files of an ignored directory
+data/*
+# eigenvalues of long runs (hours on the server) are kept
+!data/evals/
 *.npy
 *.txt
 
