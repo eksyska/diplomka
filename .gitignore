@@ -10,6 +10,7 @@ figs/
 data/*
 # eigenvalues of long runs (hours on the server) are kept
 !data/evals/
+!data/evals_ref/
 *.npy
 *.txt
 
