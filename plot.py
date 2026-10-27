@@ -5,6 +5,7 @@ from datetime import datetime
 from scipy.stats import gaussian_kde
 from scipy import ndimage
 from matplotlib.widgets import Slider
+from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 
 
 
@@ -219,7 +220,7 @@ def plot_csr_window(window, show=True, others=None, normalize=False, title=None)
     return fig
 
 
-def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color", show=True):
+def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color", hist_lim=(3.5, 0.35), show=True):
     """Interactive sliding window statistics: the window curves on top, below them for the window at the slider
     position the complex spacing ratios in the complex plane, the |z| and arg(z) histograms and the eigenvalues
     of the window highlighted in the spectrum
@@ -233,7 +234,11 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
             slice_by="rank", otherwise it is scaled by the largest eigenvalue size of each spectrum. Defaults to None
         title (str, optional): figure title. Defaults to None
         bins (int, optional): # of histogram bins. Defaults to 40
-        map (str, optional): "color" (KDE density) or "scatter" for the complex plane plot. Defaults to "color"
+        map (str, optional): "color" (KDE density relative to Poisson, the same color scale at every slider position)
+            or "scatter" for the complex plane plot. Defaults to "color"
+        hist_lim (tuple, optional): fixed upper y limits of the P(|z|) and P(arg z) histograms at every slider
+            position, a bar above is cut off and its height shown in the title. Defaults to (3.5, 0.35)
+            (a bit above GinUE, whose maxima are ~2.7 and ~0.25)
         show (bool, optional): Defaults to True
 
     Returns:
@@ -276,8 +281,20 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     lim, n_grid = 1.2, 300 # as in kde_grid
     half = lim / (n_grid - 1)
     if map == "color":
-        density = ax_z.imshow(np.zeros((n_grid, n_grid)), origin="lower", cmap="coolwarm", interpolation="bilinear",
-                              extent=(-lim - half, lim + half, -lim - half, lim + half))
+        # one scale for every window position, the density relative to Poisson (flat 1/π on the unit disk):
+        # 0 - 2x in coolwarm (light gray = uncorrelated, blue = repulsion, red = clustering), as the chaotic windows
+        # looked scaled to their own maximum (~2x), steepened smoothly around 1x by a tanh so that a slight excess or
+        # deficit is already colored; above 2x red -> orange -> yellow in log scale, clipped at 8x
+        bend = 1.5 # steepness of the tanh, smaller = closer to linear, larger = more color for slight deviations (and noise)
+        hot = LinearSegmentedColormap.from_list("hot_tail", [plt.cm.coolwarm(1.0), "darkorange", "gold"])
+        cmap = ListedColormap(np.vstack([plt.cm.coolwarm(np.linspace(0, 1, 512)), hot(np.linspace(0, 1, 256))]))
+        density = ax_z.imshow(np.zeros((n_grid, n_grid)), origin="lower", cmap=cmap, interpolation="bilinear",
+                              extent=(-lim - half, lim + half, -lim - half, lim + half), vmin=0, vmax=3)
+        # ticks at the color coordinate of 0, 0.5, 1, 2, 4, 8 x Poisson (see update)
+        ticks = 1 + np.tanh(bend * (np.array([0, 0.5, 1, 2]) - 1)) / np.tanh(bend)
+        cbar = fig.colorbar(density, ax=ax_z, ticks=list(ticks) + [2.5, 3], extend="max", fraction=0.046, pad=0.04)
+        cbar.ax.set_yticklabels(["0", "0.5", "1", "2", "4", "8"], fontsize=7)
+        cbar.set_label("density / Poisson", fontsize=8)
     else:
         density, = ax_z.plot([], [], ".", ms=1, alpha=0.5)
     ax_z.add_artist(plt.Circle((0, 0), 1, color="gray", fill=False, linestyle="--"))
@@ -297,6 +314,8 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     ax_abs.set_ylabel("P(|z|)")
     ax_arg.set_xlabel("arg(z)")
     ax_arg.set_ylabel("P(arg z)")
+    ax_abs.set_ylim(0, hist_lim[0])
+    ax_arg.set_ylim(0, hist_lim[1])
     if others:
         ax_abs.legend(fontsize=7)
 
@@ -316,9 +335,13 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
         if map != "color":
             density.set_data(z.real, z.imag)
         elif len(z) > 2:
-            zi = kde_grid(z, lim, n_grid)[2]
+            xi, yi, zi = kde_grid(z, lim, n_grid)
+            zi = np.pi * zi # relative to Poisson
+            # color coordinate: 0 - 2x through the tanh to 0 - 2 (0 -> 0, 1 -> 1, 2 -> 2), then 2x -> 2, 8x -> 3
+            zi = np.where(zi <= 2, 1 + np.tanh(bend * (zi - 1)) / np.tanh(bend),
+                          2 + np.log2(np.maximum(zi, 2) / 2) / 2)
+            zi[np.hypot(xi, yi) > 1] = np.nan # |z| <= 1, outside the disk there is nothing to compare with
             density.set_data(zi.T) # kde_grid is indexed (x, y), imshow (row = y, column = x)
-            density.set_clim(0, zi.max())
 
         top_abs, top_arg = 0, 0
         for (z_i, _, _), (h_abs, h_arg) in zip(sel, hists):
@@ -328,8 +351,9 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
                 h_abs.set_data(p_abs)
                 h_arg.set_data(p_arg)
                 top_abs, top_arg = max(top_abs, p_abs.max()), max(top_arg, p_arg.max())
-        ax_abs.set_ylim(0, 1.1 * top_abs or 1)
-        ax_arg.set_ylim(0, 1.1 * top_arg or 1)
+        # the y range stays fixed, a cut off bar gets its height in the title
+        for a, top, h_lim in [(ax_abs, top_abs, hist_lim[0]), (ax_arg, top_arg, hist_lim[1])]:
+            a.set_title(f"highest bar {top:.2g} (cut off)" if top > h_lim else "", fontsize=8)
 
         highlight.set_data(ev.real[lo:hi], ev.imag[lo:hi])
 
@@ -350,7 +374,8 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     # space for the title on top and the slider at the bottom
     plt.tight_layout(rect=(0, 0.05, 1, 0.94))
 
-    slider = Slider(fig.add_axes([0.1, 0.015, 0.8, 0.025]), "window center", window["key"][0], window["key"][-1],
+    # starts at the first window center (the smallest size, or + width/2 with include_start), snaps to the window grid
+    slider = Slider(fig.add_axes([0.1, 0.015, 0.8, 0.025]), "window center", window["center"][0], window["key"][-1],
                     valinit=np.median(window["key"]), valstep=window["step"])
     slider.on_changed(update)
     update(slider.val)
