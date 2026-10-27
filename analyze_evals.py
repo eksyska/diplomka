@@ -111,7 +111,7 @@ for label, block_evals, is_ref in spectra:
     # they use width="auto" with the same min_count, i.e. windows with a comparable number of ratios
     _, windows[label] = csr_from_evals(block_evals, complex_spacing_ratios,
                                        width="auto" if is_ref else width, step=None if is_ref else step,
-                                       slice_by=slice_by, min_count=min_count)
+                                       slice_by=slice_by, min_count=min_count, include_start=include_start)
 
 
 # printed before the figures, plt.show() blocks until they are closed

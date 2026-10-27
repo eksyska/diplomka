@@ -46,7 +46,8 @@ def pool_evals(block_evals):
     return np.concatenate(list(block_evals.values()))
 
 
-def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, slice_by="abs", min_count=200, frac=None):
+def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, slice_by="abs", min_count=200, frac=None,
+                   include_start=False):
     """Compute complex spacing ratios separately per block and pool results
 
     The ratios are always computed on the full block spectrum, the selection by frac and the slicing / windowing
@@ -64,6 +65,8 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
         min_count (int, optional): required number of ratios in a window, windows with fewer give np.nan. Defaults to 200
         frac (float, optional): keep only the ratios of the smallest frac (0-1] of eigenvalues by slice_by size
             (over all blocks together), applied before slicing / windowing. Defaults to None (all ratios)
+        include_start (bool, optional): the first window starts at the smallest eigenvalue size (the steady state)
+            and width="auto" makes it hold min_count ratios too (see window_csr). Defaults to False
 
     Returns:
         np.ndarray: pooled complex spacing ratios (if neither n_slices nor width is given)
@@ -126,7 +129,8 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
         print_csr_slices(pooled, slices, slice_by=slice_by)
         return pooled, slices
 
-    window = window_csr(pooled, centers, width, step=step, slice_by=slice_by, min_count=min_count)
+    window = window_csr(pooled, centers, width, step=step, slice_by=slice_by, min_count=min_count,
+                        include_start=include_start)
     print(f"sliding window over {_SLICE_KEYS[slice_by][1]}: width = {window['width']:.4g}, step = {window['step']:.4g}, "
           f"{len(window['center'])} windows, {np.sum(window['n'] >= min_count)} with >= {min_count} ratios")
     print(f"pooled <|r|> = {np.abs(pooled).mean():.4f}")
@@ -173,12 +177,12 @@ def slice_csr(z, centers, n_slices, slice_by="abs"):
     return [_slice_dict(z[idx == i], (edges[i], edges[i+1])) for i in range(n_slices)]
 
 
-def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge_frac=0.05):
+def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge_frac=0.05, include_start=False):
     """Statistics of complex spacing ratios in a sliding window of eigenvalue sizes
 
     The window [c - width/2, c + width/2] is moved with its center c from the smallest
-    to the largest eigenvalue size, in each position <|r|> and -<cos θ> are computed
-    from the ratios whose eigenvalue lies in the window
+    (+ width/2 with include_start) to the largest eigenvalue size, in each position <|r|> and -<cos θ>
+    are computed from the ratios whose eigenvalue lies in the window
 
     Args:
         z (complex np.ndarray): complex spacing ratios
@@ -189,7 +193,11 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
         slice_by (str, optional): eigenvalue size measure, "abs" for |λ|, "real" for |Re λ|, "rank" for the rank of |λ|.
             Defaults to "abs"
         min_count (int, optional): windows with fewer ratios give np.nan. Defaults to 200
-        edge_frac (float, optional): fraction of ratios at the spectrum edges ignored by width="auto". Defaults to 0.05
+        edge_frac (float, optional): fraction of ratios at the spectrum edges ignored by width="auto"
+            (only at the upper edge with include_start). Defaults to 0.05
+        include_start (bool, optional): the first window is [smallest size, smallest size + width] instead of being
+            centered at the smallest size, so it contains the steady state, and width="auto" makes it hold min_count
+            ratios too (much wider windows, the spectrum is sparse there). Defaults to False
 
     Returns:
         dict: "center" window centers, "n" number of ratios, "mean_abs" <|r|>, "mean_cos" -<cos θ> (arrays),
@@ -202,7 +210,7 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
     key = key[order]
 
     if width == "auto":
-        width = auto_window_width(key, min_count, edge_frac=edge_frac)
+        width = auto_window_width(key, min_count, edge_frac=edge_frac, include_start=include_start)
 
     if step is None:
         step = width / 4
@@ -211,7 +219,9 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
     cs_abs = np.concatenate([[0.0], np.cumsum(np.abs(z[order]))])
     cs_cos = np.concatenate([[0.0], np.cumsum(-np.cos(np.angle(z[order])))])
 
-    mid = np.arange(key[0], key[-1] + step/2, step)
+    # without include_start the first window is centered at the smallest size, half of it lies outside the spectrum
+    start = key[0] + width/2 if include_start else key[0]
+    mid = np.arange(start, key[-1] + step/2, step)
     lo = np.searchsorted(key, mid - width/2, side="left")
     hi = np.searchsorted(key, mid + width/2, side="right")
     n = hi - lo
@@ -228,7 +238,7 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
             "key": key, "z": z[order], "evals": np.asarray(centers)[order]}
 
 
-def auto_window_width(key, min_count, edge_frac=0.05, n_test=500):
+def auto_window_width(key, min_count, edge_frac=0.05, n_test=500, include_start=False):
     """Smallest window width such that every window centered in the spectrum bulk contains at least min_count ratios
 
     The bulk is the range between the edge_frac/2 and 1 - edge_frac/2 quantiles of the eigenvalue sizes,
@@ -239,6 +249,8 @@ def auto_window_width(key, min_count, edge_frac=0.05, n_test=500):
         min_count (int): required number of ratios in a window
         edge_frac (float, optional): fraction of ratios at the spectrum edges that is ignored. Defaults to 0.05
         n_test (int, optional): # of tested window centers. Defaults to 500
+        include_start (bool, optional): the lower edge is not ignored, the first window [key[0], key[0] + width]
+            (as in window_csr with include_start) and all windows up to the upper edge have to be full. Defaults to False
 
     Returns:
         float: window width
@@ -247,9 +259,11 @@ def auto_window_width(key, min_count, edge_frac=0.05, n_test=500):
     if len(key) < min_count:
         raise ValueError(f"only {len(key)} ratios in total, less than min_count = {min_count}")
 
-    mid = np.linspace(*np.quantile(key, [edge_frac/2, 1 - edge_frac/2]), n_test)
+    q_lo, q_hi = np.quantile(key, [edge_frac/2, 1 - edge_frac/2])
 
     def fewest(w):
+        # with include_start the tested centers begin at the center of the first window, which depends on w
+        mid = np.linspace(key[0] + w/2 if include_start else q_lo, q_hi, n_test)
         lo = np.searchsorted(key, mid - w/2, side="left")
         hi = np.searchsorted(key, mid + w/2, side="right")
         return (hi - lo).min()
