@@ -47,7 +47,7 @@ def pool_evals(block_evals):
 
 
 def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, slice_by="abs", min_count=200, frac=None,
-                   include_start=False):
+                   include_start=False, mark=None):
     """Compute complex spacing ratios separately per block and pool results
 
     The ratios are always computed on the full block spectrum, the selection by frac and the slicing / windowing
@@ -67,6 +67,8 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
             (over all blocks together), applied before slicing / windowing. Defaults to None (all ratios)
         include_start (bool, optional): the first window starts at the smallest eigenvalue size (the steady state)
             and width="auto" makes it hold min_count ratios too (see window_csr). Defaults to False
+        mark (float, optional): the window dict also gets the fraction of ratios with |z| < mark in every window
+            (see window_csr). Defaults to None
 
     Returns:
         np.ndarray: pooled complex spacing ratios (if neither n_slices nor width is given)
@@ -130,7 +132,7 @@ def csr_from_evals(block_evals, csr_func, n_slices=None, width=None, step=None, 
         return pooled, slices
 
     window = window_csr(pooled, centers, width, step=step, slice_by=slice_by, min_count=min_count,
-                        include_start=include_start)
+                        include_start=include_start, mark=mark)
     print(f"sliding window over {_SLICE_KEYS[slice_by][1]}: width = {window['width']:.4g}, step = {window['step']:.4g}, "
           f"{len(window['center'])} windows, {np.sum(window['n'] >= min_count)} with >= {min_count} ratios")
     print(f"pooled <|r|> = {np.abs(pooled).mean():.4f}")
@@ -177,7 +179,8 @@ def slice_csr(z, centers, n_slices, slice_by="abs"):
     return [_slice_dict(z[idx == i], (edges[i], edges[i+1])) for i in range(n_slices)]
 
 
-def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge_frac=0.05, include_start=False):
+def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge_frac=0.05, include_start=False,
+               mark=None):
     """Statistics of complex spacing ratios in a sliding window of eigenvalue sizes
 
     The window [c - width/2, c + width/2] is moved with its center c from the smallest
@@ -198,11 +201,14 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
         include_start (bool, optional): the first window is [smallest size, smallest size + width] instead of being
             centered at the smallest size, so it contains the steady state, and width="auto" makes it hold min_count
             ratios too (much wider windows, the spectrum is sparse there). Defaults to False
+        mark (float, optional): also compute the fraction of ratios with |z| < mark in every window
+            (Poisson gives mark^2, GinUE nearly 0). Defaults to None
 
     Returns:
         dict: "center" window centers, "n" number of ratios, "mean_abs" <|r|>, "mean_cos" -<cos θ> (arrays),
             "width", "step", "slice_by", "key_max" largest eigenvalue size (for a normalized x axis),
-            "key", "z", "evals" eigenvalue sizes, ratios and their eigenvalues sorted by size (to select the ratios of any window)
+            "key", "z", "evals" eigenvalue sizes, ratios and their eigenvalues sorted by size (to select the ratios of any window),
+            "mark" and "frac_mark" the fraction of |z| < mark per window (None without mark)
     """
 
     key = _SLICE_KEYS[slice_by][0](np.asarray(centers))
@@ -233,9 +239,17 @@ def window_csr(z, centers, width, step=None, slice_by="abs", min_count=200, edge
     mean_abs[n < min_count] = np.nan
     mean_cos[n < min_count] = np.nan
 
+    frac_mark = None
+    if mark is not None:
+        cs_mark = np.concatenate([[0.0], np.cumsum(np.abs(z[order]) < mark)])
+        with np.errstate(invalid="ignore", divide="ignore"):
+            frac_mark = (cs_mark[hi] - cs_mark[lo]) / n
+        frac_mark[n < min_count] = np.nan
+
     return {"center": mid, "n": n, "mean_abs": mean_abs, "mean_cos": mean_cos,
             "width": width, "step": step, "slice_by": slice_by, "key_max": key[-1],
-            "key": key, "z": z[order], "evals": np.asarray(centers)[order]}
+            "key": key, "z": z[order], "evals": np.asarray(centers)[order],
+            "mark": mark, "frac_mark": frac_mark}
 
 
 def auto_window_width(key, min_count, edge_frac=0.05, n_test=500, include_start=False):
@@ -326,22 +340,30 @@ def print_csr_slices(z, slices, slice_by="abs"):
 
 ########################## COMPLEX SPACING RATIOS ##########################
 
-def complex_spacing_ratios(evals, return_centers=False):
+def complex_spacing_ratios(evals, return_centers=False, return_nn=False, k_local=10):
     """Compute complex spacing ratios for a list/array of complex eigenvalues
 
     Args:
         evals (float np.array): Lindbladian eigenvalues
         return_centers (bool, optional): also return the eigenvalue each ratio was computed for. Defaults to False
+        return_nn (bool, optional): also return the eigenvalues, the indices of the eigenvalue and of its nearest
+            neighbour and the normalized NN distance s = NN distance / local mean spacing. Defaults to False
+        k_local (int, optional): the local mean spacing is estimated from the distance to the k_local-th neighbour
+            (only with return_nn). Defaults to 10
 
     Returns:
         float np.array: complex spacing ratios
         (float np.array, complex np.array): ratios and their eigenvalues (if return_centers)
+        (float np.array, complex np.array, int np.array (n, 2), float np.array): ratios, their eigenvalues,
+            [index of the eigenvalue, index of its NN] in evals and s (if return_nn)
     """
 
     evals = np.asarray(evals)
     pts = np.column_stack([evals.real, evals.imag])
     tree = cKDTree(pts)
-    _, indices = tree.query(pts, k=3, workers=-1)  # k=1 is self, k=2 NN, k=3 NNN
+    k_local = min(k_local, len(evals) - 1)
+    # k=1 is self, k=2 NN, k=3 NNN, further neighbours only for the local spacing
+    dists, indices = tree.query(pts, k=k_local + 1 if return_nn else 3)
 
     r1 = evals[indices[:, 1]] - evals
     r2 = evals[indices[:, 2]] - evals
@@ -350,6 +372,13 @@ def complex_spacing_ratios(evals, return_centers=False):
     z = r1 / r2
     valid_mask = np.isfinite(z)
     z = z[valid_mask]
+
+    if return_nn:
+        # 2D Poisson process of density rho: pi rho d_k^2 ~ k and the mean NN spacing is 1 / (2 sqrt(rho)),
+        # so the spacing comes without unfolding (the density of the spectrum varies a lot)
+        s = dists[:, 1] / (dists[:, k_local] * np.sqrt(np.pi) / (2 * np.sqrt(k_local)))
+        nn = np.column_stack([np.arange(len(evals)), indices[:, 1]])
+        return z, evals[valid_mask], nn[valid_mask], s[valid_mask]
 
     if return_centers:
         return z, evals[valid_mask]

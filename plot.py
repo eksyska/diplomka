@@ -225,6 +225,9 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     position the complex spacing ratios in the complex plane, the |z| and arg(z) histograms and the eigenvalues
     of the window highlighted in the spectrum
 
+    With window["mark"] (csr_from_evals(..., mark=...)) the eigenvalues with |z| < mark are drawn in red, a third
+    curve on top shows their fraction per window and the circle |z| = mark is drawn in the complex plane.
+
     The slider only works in an interactive backend (script run from a terminal), not in saved figures.
 
     Args:
@@ -248,11 +251,15 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     curves = [(window, "data" if others else None)] + list(others or [])
     scale = [window["key_max"] / w["key_max"] for w, _ in curves] # other spectra on the x axis of the data
     xlabel = {"abs": "|λ|", "real": "|Re λ|", "rank": "rank of |λ|"}[window["slice_by"]]
+    mark = window.get("mark")
 
+    # 12 columns, so that the top row can hold 2 or 3 curves above the 4 panels
     fig = plt.figure(figsize=(15, 8))
-    gs = fig.add_gridspec(2, 4, height_ratios=[1, 1.3])
-    ax_r, ax_c = fig.add_subplot(gs[0, :2]), fig.add_subplot(gs[0, 2:])
-    ax_z, ax_abs, ax_arg, ax_sp = [fig.add_subplot(gs[1, i]) for i in range(4)]
+    gs = fig.add_gridspec(2, 12, height_ratios=[1, 1.3])
+    n_top = 2 if mark is None else 3
+    ax_top = [fig.add_subplot(gs[0, i * 12 // n_top:(i + 1) * 12 // n_top]) for i in range(n_top)]
+    ax_r, ax_c = ax_top[:2]
+    ax_z, ax_abs, ax_arg, ax_sp = [fig.add_subplot(gs[1, 3 * i:3 * (i + 1)]) for i in range(4)]
 
     for a, key, ylabel, ref_idx in [(ax_r, "mean_abs", "<|r|>", 0), (ax_c, "mean_cos", "-<cos θ>", 1)]:
 
@@ -266,15 +273,28 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
         a.set_ylabel(ylabel)
         a.legend(fontsize=7)
 
+    if mark is not None:
+        # fraction of the ratios near z = 0 (the central peak) per window, the other spectra only if computed too
+        ax_m = ax_top[2]
+        for i, ((w, label), s) in enumerate(zip(curves, scale)):
+            if w.get("frac_mark") is not None:
+                ax_m.plot(w["center"] * s, w["frac_mark"], ".-", ms=2, lw=0.8, color=f"C{i}", label=label)
+        ax_m.axhline(mark**2, color="gray", ls=":", lw=1, label="Poisson")
+        ax_m.set_ylim(bottom=0)
+        ax_m.set_xlabel(f"window center {xlabel}")
+        ax_m.set_ylabel(f"fraction of |z| < {mark:g}")
+        ax_m.legend(fontsize=7)
+
     # all artists below are created once, moving the slider only replaces their data (redrawing them is slow)
 
     # the whole spectrum once in gray, the eigenvalues of the window are drawn over it
     ev = window["evals"]
     ax_sp.plot(ev.real, ev.imag, ",", color="lightgray")
     highlight, = ax_sp.plot([], [], ".", ms=2, color="C0")
+    marked, = ax_sp.plot([], [], ".", ms=4, color="red")
     ax_sp.set_xlabel("Re(λ)")
     ax_sp.set_ylabel("Im(λ)")
-    ax_sp.set_title("eigenvalues of the window", fontsize=9)
+    ax_sp.set_title("eigenvalues of the window" + (f", red: |z| < {mark:g}" if mark is not None else ""), fontsize=9)
 
     # complex plane of the data; imshow with bilinear interpolation looks like pcolormesh(shading="gouraud")
     # in plot_complex_ratios but draws several times faster
@@ -298,6 +318,8 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
     else:
         density, = ax_z.plot([], [], ".", ms=1, alpha=0.5)
     ax_z.add_artist(plt.Circle((0, 0), 1, color="gray", fill=False, linestyle="--"))
+    if mark is not None:
+        ax_z.add_artist(plt.Circle((0, 0), mark, color="k", fill=False, linestyle="--", lw=0.8))
     ax_z.set_xlim(-lim, lim)
     ax_z.set_ylim(-lim, lim)
     ax_z.set_aspect("equal")
@@ -356,17 +378,22 @@ def plot_csr_window_slider(window, others=None, title=None, bins=40, map="color"
             a.set_title(f"highest bar {top:.2g} (cut off)" if top > h_lim else "", fontsize=8)
 
         highlight.set_data(ev.real[lo:hi], ev.imag[lo:hi])
+        if mark is not None:
+            small = np.abs(z) < mark
+            marked.set_data(ev.real[lo:hi][small], ev.imag[lo:hi][small])
 
         for b in bands:
             b.remove()
         bands[:] = [a.axvspan(pos - window["width"] / 2, pos + window["width"] / 2, color="gray", alpha=0.3)
-                    for a in (ax_r, ax_c)]
+                    for a in ax_top]
 
         info = f"window {xlabel} in [{pos - window['width'] / 2:.3g}, {pos + window['width'] / 2:.3g}]"
         if window["slice_by"] == "rank" and len(z):
             info += f", |λ| in [{abs(ev[lo]):.3g}, {abs(ev[hi - 1]):.3g}]"
         if len(z):
             info += f":  n = {len(z)},  <|r|> = {np.abs(z).mean():.3f},  -<cos θ> = {-np.cos(np.angle(z)).mean():.3f}"
+        if mark is not None and len(z):
+            info += f",  marked {small.sum()} ({small.sum() / (len(z) * mark**2):.1f} x Poisson)"
         fig.suptitle(info if title is None else f"{title}\n{info}", fontsize=9)
 
         fig.canvas.draw_idle()
